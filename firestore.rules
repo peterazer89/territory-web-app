@@ -1,0 +1,371 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shared identity and validation primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 160 && id.matches('^[a-zA-Z0-9_\\-:.]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOptString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptNumber(data, field) {
+      return !(field in data) || data[field] == null || (data[field] is number || data[field] is int);
+    }
+
+    function isOptBool(data, field) {
+      return !(field in data) || data[field] == null || (data[field] is bool);
+    }
+
+    function isOptTimestamp(data, field) {
+      return !(field in data) || data[field] == null || (
+        data[field] is timestamp ||
+        data[field] is int ||
+        data[field] is number ||
+        (data[field] is string && data[field].size() <= 64)
+      );
+    }
+
+    function isValidHcp(data, userId) {
+      return data.keys().hasAll(['userId', 'targetId', 'name']) &&
+        data.keys().hasOnly([
+          'userId', 'targetId', 'name', 'specialty', 'quarterlyTarget',
+          'priorityScore', 'zone', 'isActive', 'defaultVisitDurationMinutes',
+          'importedBaselineVisits', 'baselineQuarterLabel', 'historyIncomplete',
+          'notes', 'sourceWorkbook', 'version', 'isDeleted', 'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        isOptString(data, 'specialty', 120) &&
+        isOptNumber(data, 'quarterlyTarget') &&
+        isOptNumber(data, 'priorityScore') &&
+        isOptString(data, 'zone', 120) &&
+        isOptBool(data, 'isActive') &&
+        isOptNumber(data, 'defaultVisitDurationMinutes') &&
+        isOptNumber(data, 'importedBaselineVisits') &&
+        isOptString(data, 'baselineQuarterLabel', 32) &&
+        isOptBool(data, 'historyIncomplete') &&
+        isOptString(data, 'notes', 2000) &&
+        isOptString(data, 'sourceWorkbook', 255) &&
+        isOptNumber(data, 'version') &&
+        isOptBool(data, 'isDeleted') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    function isValidClinic(data, userId) {
+      return data.keys().hasAll(['userId', 'clinicKey', 'hcpTargetId', 'clinicIndex']) &&
+        data.keys().hasOnly([
+          'userId', 'clinicKey', 'hcpTargetId', 'clinicIndex', 'label', 'zone',
+          'originalLocationText', 'googleMapsUrl', 'latitude', 'longitude',
+          'geocodingStatus', 'rawScheduleText', 'originalExcelScheduleText',
+          'normalizedDaysCsv', 'excludedDaysCsv', 'scheduleParseStatus',
+          'scheduleClassification', 'parsingMethod', 'validationStatus',
+          'userConfirmedSchedule', 'isManualUserConfirmed', 'isActive',
+          'scheduleAmbiguityReason', 'sourceSheet', 'sourceRow', 'sourceColumn',
+          'windows', 'version', 'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        data.clinicKey is string && data.clinicKey.size() >= 1 && data.clinicKey.size() <= 160 &&
+        data.hcpTargetId is string && data.hcpTargetId.size() >= 1 && data.hcpTargetId.size() <= 128 &&
+        (data.clinicIndex is number || data.clinicIndex is int) && data.clinicIndex >= 1 && data.clinicIndex <= 20 &&
+        isOptString(data, 'label', 120) &&
+        isOptString(data, 'zone', 120) &&
+        isOptString(data, 'originalLocationText', 500) &&
+        isOptString(data, 'googleMapsUrl', 1000) &&
+        isOptNumber(data, 'latitude') &&
+        isOptNumber(data, 'longitude') &&
+        (!('geocodingStatus' in data) || data.geocodingStatus in ['VERIFIED', 'EXTRACTED_URL', 'UNVERIFIED', 'MISSING']) &&
+        isOptString(data, 'rawScheduleText', 500) &&
+        isOptString(data, 'originalExcelScheduleText', 500) &&
+        isOptString(data, 'normalizedDaysCsv', 64) &&
+        isOptString(data, 'excludedDaysCsv', 64) &&
+        (!('scheduleParseStatus' in data) || data.scheduleParseStatus in ['CONFIRMED', 'PARSED_HIGH_CONFIDENCE', 'AMBIGUOUS', 'UNPARSED']) &&
+        isOptString(data, 'scheduleClassification', 64) &&
+        isOptString(data, 'parsingMethod', 64) &&
+        isOptString(data, 'validationStatus', 64) &&
+        isOptBool(data, 'userConfirmedSchedule') &&
+        isOptBool(data, 'isManualUserConfirmed') &&
+        isOptBool(data, 'isActive') &&
+        isOptString(data, 'scheduleAmbiguityReason', 500) &&
+        isOptString(data, 'sourceSheet', 120) &&
+        isOptNumber(data, 'sourceRow') &&
+        isOptString(data, 'sourceColumn', 64) &&
+        (!('windows' in data) || data.windows == null || (
+          data.windows is list && data.windows.size() <= 42 &&
+          (data.windows.size() == 0 || data.windows[0] is map)
+        )) &&
+        isOptNumber(data, 'version') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    function isValidVisit(data, userId) {
+      return data.keys().hasAll(['userId', 'hcpTargetId', 'plannedDateIso', 'status']) &&
+        data.keys().hasOnly([
+          'userId', 'hcpTargetId', 'clinicKey', 'clinicLabel', 'plannedDateIso',
+          'weekKey', 'plannedStartMinute', 'plannedEndMinute', 'quarterLabel',
+          'recordSource', 'status', 'qualifiesForCoverage', 'notes', 'version',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        data.hcpTargetId is string && data.hcpTargetId.size() >= 1 && data.hcpTargetId.size() <= 128 &&
+        isOptString(data, 'clinicKey', 160) &&
+        isOptString(data, 'clinicLabel', 120) &&
+        data.plannedDateIso is string && data.plannedDateIso.size() >= 8 && data.plannedDateIso.size() <= 32 &&
+        isOptString(data, 'weekKey', 32) &&
+        isOptNumber(data, 'plannedStartMinute') &&
+        isOptNumber(data, 'plannedEndMinute') &&
+        isOptString(data, 'quarterLabel', 32) &&
+        isOptString(data, 'recordSource', 64) &&
+        data.status is string && data.status in ['PLANNED', 'COMPLETED', 'CANCELLED', 'NOT_COMPLETED'] &&
+        isOptBool(data, 'qualifiesForCoverage') &&
+        isOptString(data, 'notes', 1000) &&
+        isOptNumber(data, 'version') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    function isValidWeeklyLock(data, userId) {
+      return data.keys().hasAll(['userId', 'hcpTargetId', 'weekStartIso', 'visitDocId', 'status']) &&
+        data.keys().hasOnly([
+          'userId', 'hcpTargetId', 'weekStartIso', 'weekEndIso', 'visitDocId',
+          'plannedDateIso', 'clinicKey', 'clinicLabel', 'status', 'version',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        data.hcpTargetId is string && data.hcpTargetId.size() >= 1 && data.hcpTargetId.size() <= 128 &&
+        data.weekStartIso is string && data.weekStartIso.size() >= 8 && data.weekStartIso.size() <= 32 &&
+        isOptString(data, 'weekEndIso', 32) &&
+        data.visitDocId is string && data.visitDocId.size() >= 1 && data.visitDocId.size() <= 160 &&
+        isOptString(data, 'plannedDateIso', 32) &&
+        isOptString(data, 'clinicKey', 160) &&
+        isOptString(data, 'clinicLabel', 120) &&
+        data.status is string && data.status in ['PLANNED', 'COMPLETED', 'CONFIRMED'] &&
+        isOptNumber(data, 'version') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    function isValidPlan(data, userId) {
+      return data.keys().hasAll(['userId', 'dateIso', 'variantCode']) &&
+        data.keys().hasOnly([
+          'userId', 'dateIso', 'variantCode', 'variantLabel', 'isSelected',
+          'startMinuteOfDay', 'endMinuteOfDay', 'totalDutySpanMinutes',
+          'totalDrivingMinutes', 'totalDistanceKm', 'totalWaitingMinutes',
+          'plannedVisitsCount', 'uniqueHcpsCount', 'feasibilityStatus',
+          'infeasibilityReasonsText', 'validatorReportText', 'stops',
+          'version', 'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        data.dateIso is string && data.dateIso.size() >= 8 && data.dateIso.size() <= 32 &&
+        data.variantCode is string && data.variantCode.size() >= 1 && data.variantCode.size() <= 16 &&
+        isOptString(data, 'variantLabel', 120) &&
+        isOptBool(data, 'isSelected') &&
+        isOptNumber(data, 'startMinuteOfDay') &&
+        isOptNumber(data, 'endMinuteOfDay') &&
+        isOptNumber(data, 'totalDutySpanMinutes') &&
+        isOptNumber(data, 'totalDrivingMinutes') &&
+        isOptNumber(data, 'totalDistanceKm') &&
+        isOptNumber(data, 'totalWaitingMinutes') &&
+        isOptNumber(data, 'plannedVisitsCount') &&
+        isOptNumber(data, 'uniqueHcpsCount') &&
+        (!('feasibilityStatus' in data) || data.feasibilityStatus in ['FEASIBLE', 'PARTIAL_TARGET', 'INFEASIBLE']) &&
+        isOptString(data, 'infeasibilityReasonsText', 2000) &&
+        isOptString(data, 'validatorReportText', 4000) &&
+        (!('stops' in data) || data.stops == null || (
+          data.stops is list && data.stops.size() <= 40 &&
+          (data.stops.size() == 0 || data.stops[0] is map)
+        )) &&
+        isOptNumber(data, 'version') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    function isValidWorkSettings(data, userId) {
+      return data.keys().hasAll(['userId']) &&
+        data.keys().hasOnly([
+          'userId', 'dailyHcpTarget', 'maxDutySpanMinutes', 'homeAddress',
+          'homeLatitude', 'homeLongitude', 'returnHomeRequired',
+          'defaultVisitDurationMinutes', 'weekendDaysIso', 'workingDaysIso',
+          'firstDayOfWeekIso', 'territoryTimeZoneId', 'currentQuarterLabel',
+          'overdueThresholdDays', 'trafficSafetyBufferPercent',
+          'priorityWeightSpecialtyPercent', 'priorityWeightRemainingVisitsPercent',
+          'priorityWeightTravelDistancePercent', 'preferredSpecialtiesRanked',
+          'availableSpecialtiesCatalog', 'hasUserConfiguredPreferredSpecialties',
+          'enforceWeeklyHcpVisitLimit', 'themeMode', 'version', 'createdAt', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId == userId &&
+        isOptNumber(data, 'dailyHcpTarget') &&
+        isOptNumber(data, 'maxDutySpanMinutes') &&
+        isOptString(data, 'homeAddress', 500) &&
+        isOptNumber(data, 'homeLatitude') &&
+        isOptNumber(data, 'homeLongitude') &&
+        isOptBool(data, 'returnHomeRequired') &&
+        isOptNumber(data, 'defaultVisitDurationMinutes') &&
+        (!('weekendDaysIso' in data) || data.weekendDaysIso == null || (
+          data.weekendDaysIso is list && data.weekendDaysIso.size() <= 7 &&
+          (data.weekendDaysIso.size() == 0 || data.weekendDaysIso[0] is int || data.weekendDaysIso[0] is number)
+        )) &&
+        (!('workingDaysIso' in data) || data.workingDaysIso == null || (
+          data.workingDaysIso is list && data.workingDaysIso.size() <= 7 &&
+          (data.workingDaysIso.size() == 0 || data.workingDaysIso[0] is int || data.workingDaysIso[0] is number)
+        )) &&
+        isOptNumber(data, 'firstDayOfWeekIso') &&
+        isOptString(data, 'territoryTimeZoneId', 64) &&
+        isOptString(data, 'currentQuarterLabel', 32) &&
+        isOptNumber(data, 'overdueThresholdDays') &&
+        isOptNumber(data, 'trafficSafetyBufferPercent') &&
+        isOptNumber(data, 'priorityWeightSpecialtyPercent') &&
+        isOptNumber(data, 'priorityWeightRemainingVisitsPercent') &&
+        isOptNumber(data, 'priorityWeightTravelDistancePercent') &&
+        (!('preferredSpecialtiesRanked' in data) || data.preferredSpecialtiesRanked == null || (
+          data.preferredSpecialtiesRanked is list && data.preferredSpecialtiesRanked.size() <= 100 &&
+          (data.preferredSpecialtiesRanked.size() == 0 || data.preferredSpecialtiesRanked[0] is string)
+        )) &&
+        (!('availableSpecialtiesCatalog' in data) || data.availableSpecialtiesCatalog == null || (
+          data.availableSpecialtiesCatalog is list && data.availableSpecialtiesCatalog.size() <= 200 &&
+          (data.availableSpecialtiesCatalog.size() == 0 || data.availableSpecialtiesCatalog[0] is string)
+        )) &&
+        isOptBool(data, 'hasUserConfiguredPreferredSpecialties') &&
+        isOptBool(data, 'enforceWeeklyHcpVisitLimit') &&
+        (!('themeMode' in data) || data.themeMode in ['SYSTEM', 'LIGHT', 'DARK']) &&
+        isOptNumber(data, 'version') &&
+        isOptTimestamp(data, 'createdAt') &&
+        isOptTimestamp(data, 'updatedAt');
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list, create, update, delete: if false;
+
+      match /hcps/{hcpId} {
+        allow get: if isOwner(userId) && isValidId(hcpId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(hcpId) && isValidHcp(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(hcpId) && isValidHcp(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'targetId', 'name', 'specialty', 'quarterlyTarget', 'priorityScore',
+            'zone', 'isActive', 'defaultVisitDurationMinutes', 'importedBaselineVisits',
+            'baselineQuarterLabel', 'historyIncomplete', 'notes', 'sourceWorkbook',
+            'version', 'isDeleted', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(hcpId);
+      }
+
+      match /clinics/{clinicId} {
+        allow get: if isOwner(userId) && isValidId(clinicId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(clinicId) && isValidClinic(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(clinicId) && isValidClinic(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'clinicKey', 'hcpTargetId', 'clinicIndex', 'label', 'zone',
+            'originalLocationText', 'googleMapsUrl', 'latitude', 'longitude',
+            'geocodingStatus', 'rawScheduleText', 'originalExcelScheduleText',
+            'normalizedDaysCsv', 'excludedDaysCsv', 'scheduleParseStatus',
+            'scheduleClassification', 'parsingMethod', 'validationStatus',
+            'userConfirmedSchedule', 'isManualUserConfirmed', 'isActive',
+            'scheduleAmbiguityReason', 'sourceSheet', 'sourceRow', 'sourceColumn',
+            'windows', 'version', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(clinicId);
+      }
+
+      match /visits/{visitId} {
+        allow get: if isOwner(userId) && isValidId(visitId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(visitId) && isValidVisit(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(visitId) && isValidVisit(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'hcpTargetId', 'clinicKey', 'clinicLabel', 'plannedDateIso', 'weekKey',
+            'plannedStartMinute', 'plannedEndMinute', 'quarterLabel', 'recordSource',
+            'status', 'qualifiesForCoverage', 'notes', 'version', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(visitId);
+      }
+
+      match /weeklyLocks/{lockId} {
+        allow get: if isOwner(userId) && isValidId(lockId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(lockId) && isValidWeeklyLock(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(lockId) && isValidWeeklyLock(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'hcpTargetId', 'weekStartIso', 'weekEndIso', 'visitDocId',
+            'plannedDateIso', 'clinicKey', 'clinicLabel', 'status',
+            'version', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(lockId);
+      }
+
+      match /plans/{planId} {
+        allow get: if isOwner(userId) && isValidId(planId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(planId) && isValidPlan(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(planId) && isValidPlan(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'dateIso', 'variantCode', 'variantLabel', 'isSelected',
+            'startMinuteOfDay', 'endMinuteOfDay', 'totalDutySpanMinutes',
+            'totalDrivingMinutes', 'totalDistanceKm', 'totalWaitingMinutes',
+            'plannedVisitsCount', 'uniqueHcpsCount', 'feasibilityStatus',
+            'infeasibilityReasonsText', 'validatorReportText', 'stops',
+            'version', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(planId);
+      }
+
+      match /settings/{settingId} {
+        allow get: if isOwner(userId) && settingId == 'work';
+        allow list: if false;
+        allow create: if isOwner(userId) && settingId == 'work' && isValidWorkSettings(incoming(), userId);
+        allow update: if isOwner(userId) && settingId == 'work' && isValidWorkSettings(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'dailyHcpTarget', 'maxDutySpanMinutes', 'homeAddress',
+            'homeLatitude', 'homeLongitude', 'returnHomeRequired',
+            'defaultVisitDurationMinutes', 'weekendDaysIso', 'workingDaysIso',
+            'firstDayOfWeekIso', 'territoryTimeZoneId', 'currentQuarterLabel',
+            'overdueThresholdDays', 'trafficSafetyBufferPercent',
+            'priorityWeightSpecialtyPercent', 'priorityWeightRemainingVisitsPercent',
+            'priorityWeightTravelDistancePercent', 'preferredSpecialtiesRanked',
+            'availableSpecialtiesCatalog', 'hasUserConfiguredPreferredSpecialties',
+            'enforceWeeklyHcpVisitLimit', 'themeMode', 'version', 'createdAt', 'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+    }
+  }
+}

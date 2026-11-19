@@ -1,0 +1,200 @@
+{
+  "entities": {
+    "Hcp": {
+      "title": "HCP Profile",
+      "description": "Healthcare professional target record in a medical representative's territory.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "specialty": { "type": "string", "maxLength": 120 },
+        "quarterlyTarget": { "type": "number" },
+        "priorityScore": { "type": "number" },
+        "zone": { "type": "string", "maxLength": 120 },
+        "isActive": { "type": "boolean" },
+        "defaultVisitDurationMinutes": { "type": "number" },
+        "importedBaselineVisits": { "type": "number" },
+        "baselineQuarterLabel": { "type": "string", "maxLength": 32 },
+        "historyIncomplete": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "sourceWorkbook": { "type": "string", "maxLength": 255 },
+        "version": { "type": "number" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "targetId", "name"]
+    },
+    "Clinic": {
+      "title": "HCP Clinic Location",
+      "description": "Individual clinic location, GPS pin, and independent weekly schedule windows for an HCP.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "clinicKey": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "hcpTargetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "clinicIndex": { "type": "number" },
+        "label": { "type": "string", "maxLength": 120 },
+        "zone": { "type": "string", "maxLength": 120 },
+        "originalLocationText": { "type": "string", "maxLength": 500 },
+        "googleMapsUrl": { "type": "string", "maxLength": 1000 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "geocodingStatus": { "type": "string", "enum": ["VERIFIED", "EXTRACTED_URL", "UNVERIFIED", "MISSING"] },
+        "rawScheduleText": { "type": "string", "maxLength": 500 },
+        "originalExcelScheduleText": { "type": "string", "maxLength": 500 },
+        "normalizedDaysCsv": { "type": "string", "maxLength": 64 },
+        "excludedDaysCsv": { "type": "string", "maxLength": 64 },
+        "scheduleParseStatus": { "type": "string", "enum": ["CONFIRMED", "PARSED_HIGH_CONFIDENCE", "AMBIGUOUS", "UNPARSED"] },
+        "scheduleClassification": { "type": "string", "maxLength": 64 },
+        "parsingMethod": { "type": "string", "maxLength": 64 },
+        "validationStatus": { "type": "string", "maxLength": 64 },
+        "userConfirmedSchedule": { "type": "boolean" },
+        "isManualUserConfirmed": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "scheduleAmbiguityReason": { "type": "string", "maxLength": 500 },
+        "sourceSheet": { "type": "string", "maxLength": 120 },
+        "sourceRow": { "type": "number" },
+        "sourceColumn": { "type": "string", "maxLength": 64 },
+        "windows": { "type": "array" },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "clinicKey", "hcpTargetId", "clinicIndex"]
+    },
+    "Visit": {
+      "title": "HCP Visit Record",
+      "description": "Planned or executed HCP visit tied to a specific clinic and date.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "hcpTargetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "clinicKey": { "type": "string", "maxLength": 160 },
+        "clinicLabel": { "type": "string", "maxLength": 120 },
+        "plannedDateIso": { "type": "string", "maxLength": 32 },
+        "weekKey": { "type": "string", "maxLength": 32 },
+        "plannedStartMinute": { "type": "number" },
+        "plannedEndMinute": { "type": "number" },
+        "quarterLabel": { "type": "string", "maxLength": 32 },
+        "recordSource": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["PLANNED", "COMPLETED", "CANCELLED", "NOT_COMPLETED"] },
+        "qualifiesForCoverage": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "hcpTargetId", "plannedDateIso", "status"]
+    },
+    "WeeklyLock": {
+      "title": "Weekly HCP Visit Lock",
+      "description": "Transactional lock enforcing at most one active or completed visit per HCP per calendar week across all clinics.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "hcpTargetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "weekStartIso": { "type": "string", "maxLength": 32 },
+        "weekEndIso": { "type": "string", "maxLength": 32 },
+        "visitDocId": { "type": "string", "maxLength": 160 },
+        "plannedDateIso": { "type": "string", "maxLength": 32 },
+        "clinicKey": { "type": "string", "maxLength": 160 },
+        "clinicLabel": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["PLANNED", "COMPLETED", "CONFIRMED"] },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "hcpTargetId", "weekStartIso", "visitDocId", "status"]
+    },
+    "DailyPlan": {
+      "title": "Daily Route Plan Variant",
+      "description": "Optimized daily route plan variant (A, B, or C) with ordered stops and feasibility report.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "dateIso": { "type": "string", "maxLength": 32 },
+        "variantCode": { "type": "string", "maxLength": 16 },
+        "variantLabel": { "type": "string", "maxLength": 120 },
+        "isSelected": { "type": "boolean" },
+        "startMinuteOfDay": { "type": "number" },
+        "endMinuteOfDay": { "type": "number" },
+        "totalDutySpanMinutes": { "type": "number" },
+        "totalDrivingMinutes": { "type": "number" },
+        "totalDistanceKm": { "type": "number" },
+        "totalWaitingMinutes": { "type": "number" },
+        "plannedVisitsCount": { "type": "number" },
+        "uniqueHcpsCount": { "type": "number" },
+        "feasibilityStatus": { "type": "string", "enum": ["FEASIBLE", "PARTIAL_TARGET", "INFEASIBLE"] },
+        "infeasibilityReasonsText": { "type": "string", "maxLength": 2000 },
+        "validatorReportText": { "type": "string", "maxLength": 4000 },
+        "stops": { "type": "array" },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "dateIso", "variantCode"]
+    },
+    "WorkSettings": {
+      "title": "Territory Work Settings",
+      "description": "Per-user territory planning parameters, work calendar, home base GPS, and theme preference.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "dailyHcpTarget": { "type": "number" },
+        "maxDutySpanMinutes": { "type": "number" },
+        "homeAddress": { "type": "string", "maxLength": 500 },
+        "homeLatitude": { "type": "number" },
+        "homeLongitude": { "type": "number" },
+        "returnHomeRequired": { "type": "boolean" },
+        "defaultVisitDurationMinutes": { "type": "number" },
+        "weekendDaysIso": { "type": "array" },
+        "workingDaysIso": { "type": "array" },
+        "firstDayOfWeekIso": { "type": "number" },
+        "territoryTimeZoneId": { "type": "string", "maxLength": 64 },
+        "currentQuarterLabel": { "type": "string", "maxLength": 32 },
+        "overdueThresholdDays": { "type": "number" },
+        "trafficSafetyBufferPercent": { "type": "number" },
+        "priorityWeightSpecialtyPercent": { "type": "number" },
+        "priorityWeightRemainingVisitsPercent": { "type": "number" },
+        "priorityWeightTravelDistancePercent": { "type": "number" },
+        "preferredSpecialtiesRanked": { "type": "array" },
+        "availableSpecialtiesCatalog": { "type": "array" },
+        "hasUserConfiguredPreferredSpecialties": { "type": "boolean" },
+        "enforceWeeklyHcpVisitLimit": { "type": "boolean" },
+        "themeMode": { "type": "string", "enum": ["SYSTEM", "LIGHT", "DARK"] },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/hcps/{hcpId}": {
+      "schema": { "$ref": "#/entities/Hcp" },
+      "description": "User-scoped HCP directory records (docId: hcp_{targetId})."
+    },
+    "/users/{userId}/clinics/{clinicId}": {
+      "schema": { "$ref": "#/entities/Clinic" },
+      "description": "User-scoped clinic locations and independent schedule windows (docId: clinic_{hcpTargetId}_C{clinicIndex})."
+    },
+    "/users/{userId}/visits/{visitId}": {
+      "schema": { "$ref": "#/entities/Visit" },
+      "description": "User-scoped planned and executed HCP visits (docId: visit_{hcpTargetId}_{plannedDateIso})."
+    },
+    "/users/{userId}/weeklyLocks/{lockId}": {
+      "schema": { "$ref": "#/entities/WeeklyLock" },
+      "description": "User-scoped weekly HCP visit locks enforcing once-per-week rule across all clinics (docId: wlock_{weekStartIso}_{hcpTargetId})."
+    },
+    "/users/{userId}/plans/{planId}": {
+      "schema": { "$ref": "#/entities/DailyPlan" },
+      "description": "User-scoped daily optimized route plan variants A/B/C (docId: plan_{dateIso}_{variantCode})."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/WorkSettings" },
+      "description": "User-scoped territory planning configuration (docId: work)."
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Territory Rx",
+  "description": "AI-Powered HCP Territory Planning Platform for daily and weekly medical field route optimization, bilingual clinic schedule parsing, and quarterly coverage tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

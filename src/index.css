@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', 'Noto Sans Arabic', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --brand-navy: #0B2559;
+    --brand-blue: #2563EB;
+    --brand-cyan: #00D2FF;
+
+    --color-bg: #F8FAFC;
+    --color-surface: #FFFFFF;
+    --color-surface-variant: #F1F5F9;
+    --color-outline: #E2E8F0;
+    --color-text: #0F172A;
+    --color-text-muted: #475569;
+    --color-primary: #2563EB;
+    --color-secondary: #0F766E;
+    --color-verified: #0F766E;
+    --color-warning: #D97706;
+    --color-critical: #DC2626;
+  }
+
+  .dark {
+    --color-bg: #0F172A;
+    --color-surface: #1E293B;
+    --color-surface-variant: #334155;
+    --color-outline: #334155;
+    --color-text: #F8FAFC;
+    --color-text-muted: #CBD5E1;
+    --color-primary: #60A5FA;
+    --color-secondary: #2DD4BF;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Subtle custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}
