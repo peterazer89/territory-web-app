@@ -1,91 +1,63 @@
-import React, { useState } from 'react';
-import { ArrowRight, Calendar, MapPin, Sparkles, Target } from 'lucide-react';
-import { TerritoryRxPinLogo } from './BrandMark';
+import React from 'react';
 
-import posterImageUrl from '../assets/images/territory_rx_poster_1795111468529.jpg';
+const OPENING_POSTER_URL = '/assets/aistudio/photo_2026-11-19_21-13-36_e375b724.jpg';
 
 interface OpeningPosterScreenProps {
   onStart: () => void;
 }
 
 export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStart }) => {
-  const [imgFailed, setImgFailed] = useState(false);
-
   return (
-    <div className="min-h-screen w-full bg-[#071633] text-white relative overflow-hidden flex flex-col items-center justify-between">
-      {/* Hero Medical-Route Backdrop */}
-      {!imgFailed && (
-        <img
-          src={posterImageUrl}
-          alt="Territory Rx medical route network"
-          referrerPolicy="no-referrer"
-          onError={() => setImgFailed(true)}
-          className="absolute inset-0 w-full h-full object-cover opacity-80"
-        />
-      )}
-
-      {/* Top readability veil + exact Android bottom navy gradient: transparent -> #CC04122B -> #F5030E22 */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(7,22,51,0.72) 0%, rgba(7,22,51,0.32) 34%, rgba(4,18,43,0.18) 54%, rgba(4,18,43,0.80) 76%, rgba(3,14,34,0.96) 100%)',
-        }}
+    <div
+      className="min-h-[100dvh] w-full relative overflow-hidden flex items-center justify-center"
+      style={{
+        background:
+          'linear-gradient(180deg, #EAF1F9 0%, #DAE7F5 36%, #0B2559 78%, #05132E 100%)',
+      }}
+    >
+      {/* Subtle ambient backdrop on wide desktop screens */}
+      <img
+        src={OPENING_POSTER_URL}
+        alt=""
+        aria-hidden="true"
+        className="hidden sm:block absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-45 pointer-events-none select-none"
       />
 
-      {/* Centered Mobile-Proportioned Poster Content */}
-      <div className="relative z-10 w-full max-w-[460px] min-h-screen px-6 pt-12 pb-10 flex flex-col justify-between">
-        {/* Top Center Brand Block */}
-        <div className="flex flex-col items-center text-center">
-          <div className="flex items-center justify-center gap-3">
-            <TerritoryRxPinLogo className="w-[54px] h-[58px] drop-shadow-md" />
-            <h1 className="text-[34px] leading-none font-extrabold tracking-tight">
-              <span className="text-white">Territory </span>
-              <span className="text-[#0A6BFF] dark:text-[#38BDF8]">Rx</span>
-            </h1>
-          </div>
+      {/* Exact-aspect Territory Rx opening poster frame */}
+      <div
+        className="relative z-10 w-full sm:rounded-[28px] sm:shadow-2xl sm:border sm:border-white/25 overflow-hidden select-none"
+        style={{
+          width: 'min(100vw, calc(100dvh * 1080 / 2280), 460px)',
+          aspectRatio: '1080 / 2280',
+        }}
+      >
+        <img
+          src={OPENING_POSTER_URL}
+          alt="Territory Rx — Smarter planning. More visits. Greater impact. Powered by AI. Plan, Visit, Achieve."
+          className="w-full h-full object-cover object-center block"
+        />
 
-          <p className="mt-5 text-[18px] leading-snug font-medium text-slate-100 whitespace-pre-line">
-            {'Smarter planning. More visits.\nGreater impact.'}
-          </p>
+        {/* Soft sky-frost veil over the top 3.6% to cleanly mask the phone status bar */}
+        <div
+          aria-hidden="true"
+          className="absolute top-0 left-0 right-0 h-[3.8%] pointer-events-none"
+          style={{
+            background:
+              'linear-gradient(180deg, #EDF3FA 0%, rgba(237,243,250,0.92) 65%, rgba(237,243,250,0) 100%)',
+          }}
+        />
 
-          {/* Pill Badge: ✨ Powered by AI */}
-          <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#E6F4FF] border border-[#90CAF9] px-4 py-1.5 text-sm font-semibold text-[#071B42] shadow-sm">
-            <Sparkles className="w-4 h-4 text-[#0A6BFF]" />
-            <span>Powered by AI</span>
-          </div>
-        </div>
-
-        {/* Bottom Section: 3-Column Feature Row + Full-Width CTA */}
-        <div className="space-y-6">
-          <div className="grid grid-cols-3 items-center text-center pt-4">
-            <div className="flex flex-col items-center gap-2 px-2">
-              <Calendar className="w-6 h-6 text-[#38E5FF]" />
-              <span className="text-sm font-semibold text-white">Plan</span>
-            </div>
-
-            <div className="flex flex-col items-center gap-2 px-2 border-x border-white/25">
-              <MapPin className="w-6 h-6 text-[#38E5FF]" />
-              <span className="text-sm font-semibold text-white">Visit</span>
-            </div>
-
-            <div className="flex flex-col items-center gap-2 px-2">
-              <Target className="w-6 h-6 text-[#38E5FF]" />
-              <span className="text-sm font-semibold text-white">Achieve</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onStart}
-            className="w-full h-[52px] rounded-2xl bg-[#2563EB] hover:bg-[#1D4ED8] active:scale-[0.99] text-white text-base font-semibold inline-flex items-center justify-center gap-2.5 shadow-lg shadow-[#2563EB]/30 transition-all"
-          >
-            <Sparkles className="w-5 h-5 text-[#38E5FF]" />
-            <span>Start AI Route Planning</span>
-            <ArrowRight className="w-5 h-5" />
-          </button>
-        </div>
+        {/* Interactive CTA aligned directly over "Start AI Route Planning →" */}
+        <button
+          type="button"
+          onClick={onStart}
+          aria-label="Start AI Route Planning"
+          className="group absolute left-[6.2%] right-[6.2%] bottom-[3.6%] h-[6.5%] rounded-[18px] cursor-pointer transition-all hover:bg-white/10 active:bg-black/15 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38E5FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#05132E]"
+        >
+          <span className="sr-only">Start AI Route Planning</span>
+        </button>
       </div>
     </div>
   );
 };
+
