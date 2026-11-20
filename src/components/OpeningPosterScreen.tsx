@@ -30,6 +30,7 @@ export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStar
         style={{
           width: 'min(100vw, calc(100dvh * 1080 / 2280), 460px)',
           aspectRatio: '1080 / 2280',
+          containerType: 'inline-size',
         }}
       >
         <img
@@ -38,26 +39,29 @@ export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStar
           className="w-full h-full object-cover object-center block"
         />
 
-        {/* Soft sky-frost veil over the top 3.8% to cleanly mask the phone status bar */}
+        {/* Smooth top-sky band masking the baked-in status bar and old pin/swoosh cleanly */}
         <div
           aria-hidden="true"
-          className="absolute top-0 left-0 right-0 h-[3.8%] pointer-events-none"
+          className="absolute top-0 left-0 right-0 h-[14.2%] pointer-events-none"
           style={{
             background:
-              'linear-gradient(180deg, #EDF3FA 0%, rgba(237,243,250,0.92) 65%, rgba(237,243,250,0) 100%)',
+              'linear-gradient(180deg, #EDF3FA 0%, #E9F1FA 68%, rgba(233,241,250,0.92) 84%, rgba(233,241,250,0) 100%)',
           }}
         />
 
-        {/* Opening Poster Header Icon Badge aligned next to "Territory Rx" */}
+        {/* Crisp Opening Poster Header Brand Row */}
         <div
           aria-hidden="true"
-          className="absolute left-[15.6%] top-[5.4%] w-[15.2%] aspect-square flex items-center justify-center rounded-2xl pointer-events-none"
-          style={{
-            background:
-              'radial-gradient(circle at center, #ECF3FA 66%, rgba(236,243,250,0) 100%)',
-          }}
+          className="absolute top-[5.2%] left-0 right-0 flex items-center justify-center pointer-events-none"
+          style={{ gap: '3.2cqw' }}
         >
-          <TerritoryRxIcon size="82%" className="shadow-md ring-1 ring-[#0A3D62]/15" />
+          <TerritoryRxIcon size="12.2cqw" className="shadow-md ring-1 ring-[#0A3D62]/15" />
+          <span
+            className="leading-none font-semibold tracking-tight text-[#0B2559]"
+            style={{ fontSize: '8.2cqw' }}
+          >
+            Territory <span className="text-[#2563EB]">Rx</span>
+          </span>
         </div>
 
         {/* Interactive CTA aligned directly over "Start AI Route Planning →" */}

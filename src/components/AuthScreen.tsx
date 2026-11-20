@@ -1,60 +1,84 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTerritory } from '../context/TerritoryContext';
 import { TerritoryRxIcon } from './BrandMark';
 
-import posterImageUrl from '../assets/images/territory_rx_poster_1795111468529.jpg';
+const OPENING_POSTER_URL = '/assets/aistudio/photo_2026-11-19_21-13-36_e375b724.jpg';
 
 export const AuthScreen: React.FC = () => {
   const { signInWithGoogle, signingIn, authError } = useTerritory();
-  const [imgFailed, setImgFailed] = useState(false);
 
   return (
-    <div className="min-h-screen w-full bg-[#071633] text-white relative overflow-hidden flex flex-col items-center justify-end p-4 sm:p-6">
-      {/* Same Midnight Wave Hero Backdrop */}
-      {!imgFailed && (
-        <img
-          src={posterImageUrl}
-          alt="Territory Rx backdrop"
-          referrerPolicy="no-referrer"
-          onError={() => setImgFailed(true)}
-          className="absolute inset-0 w-full h-full object-cover opacity-80"
-        />
-      )}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(7,22,51,0.45) 0%, rgba(4,18,43,0.75) 55%, rgba(3,14,34,0.96) 100%)',
-        }}
+    <div
+      className="min-h-[100dvh] w-full relative overflow-hidden flex items-center justify-center"
+      style={{
+        background:
+          'linear-gradient(180deg, #EAF1F9 0%, #DAE7F5 36%, #0B2559 78%, #05132E 100%)',
+      }}
+    >
+      {/* Subtle ambient backdrop on wide desktop screens */}
+      <img
+        src={OPENING_POSTER_URL}
+        alt=""
+        aria-hidden="true"
+        className="hidden sm:block absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-45 pointer-events-none select-none"
       />
 
-      {/* Top Branding Hint */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center text-center py-8">
-        <TerritoryRxIcon size={76} rounded={17} className="shadow-2xl ring-1 ring-white/25" />
-      </div>
+      {/* Exact-aspect Territory Rx frame matching the Opening Page 1-to-1 */}
+      <div
+        className="relative z-10 w-full sm:rounded-[28px] sm:shadow-2xl sm:border sm:border-white/25 overflow-hidden select-none"
+        style={{
+          width: 'min(100vw, calc(100dvh * 1080 / 2280), 460px)',
+          aspectRatio: '1080 / 2280',
+          containerType: 'inline-size',
+        }}
+      >
+        <img
+          src={OPENING_POSTER_URL}
+          alt="Territory Rx — Smarter planning. More visits. Greater impact."
+          className="w-full h-full object-cover object-center block"
+        />
 
-      {/* Bottom-Aligned Rounded-[26px] Card (95% opaque surface, 1px primary border) */}
-      <section className="relative z-10 w-full max-w-[460px] rounded-[26px] bg-white/95 dark:bg-[#1E293B]/95 border border-[#2563EB]/45 dark:border-[#60A5FA]/45 p-6 sm:p-7 shadow-2xl text-[#0F172A] dark:text-[#F8FAFC] mb-2">
-        <div className="text-center">
-          <h1 className="text-2xl font-extrabold tracking-tight text-[#0F172A] dark:text-[#F8FAFC]">
-            Territory <span className="text-[#2563EB] dark:text-[#60A5FA]">Rx</span>
-          </h1>
-          <p className="mt-2 text-sm text-[#475569] dark:text-[#CBD5E1]">
-            Smarter planning. More visits. Greater impact.
-          </p>
+        {/* Smooth top-sky band masking the baked-in status bar and old pin/swoosh cleanly */}
+        <div
+          aria-hidden="true"
+          className="absolute top-0 left-0 right-0 h-[14.2%] pointer-events-none"
+          style={{
+            background:
+              'linear-gradient(180deg, #EDF3FA 0%, #E9F1FA 68%, rgba(233,241,250,0.92) 84%, rgba(233,241,250,0) 100%)',
+          }}
+        />
+
+        {/* Crisp Header Brand Row */}
+        <div
+          aria-hidden="true"
+          className="absolute top-[5.2%] left-0 right-0 flex items-center justify-center pointer-events-none"
+          style={{ gap: '3.2cqw' }}
+        >
+          <TerritoryRxIcon size="12.2cqw" className="shadow-md ring-1 ring-[#0A3D62]/15" />
+          <span
+            className="leading-none font-semibold tracking-tight text-[#0B2559]"
+            style={{ fontSize: '8.2cqw' }}
+          >
+            Territory <span className="text-[#2563EB]">Rx</span>
+          </span>
         </div>
 
+        {/* Auth Error Notice (if Google sign-in fails) */}
         {authError && (
-          <div className="mt-4 rounded-2xl border border-[#DC2626]/30 bg-[#DC2626]/12 px-4 py-3 text-xs text-[#DC2626] dark:text-red-300">
+          <div
+            role="alert"
+            className="absolute left-[6.2%] right-[6.2%] bottom-[12.2%] rounded-2xl border border-[#DC2626]/40 bg-[#05132E]/95 backdrop-blur-md px-3.5 py-2.5 text-xs font-medium text-red-200 shadow-lg"
+          >
             {authError}
           </div>
         )}
 
+        {/* Google Sign-In CTA matching the exact bottom button slot */}
         <button
           type="button"
           disabled={signingIn}
           onClick={() => void signInWithGoogle()}
-          className="mt-6 w-full h-[54px] rounded-2xl bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-60 text-white font-semibold text-base inline-flex items-center justify-center gap-3 shadow-md shadow-[#2563EB]/25 transition-colors"
+          className="absolute left-[6.2%] right-[6.2%] bottom-[3.6%] h-[6.5%] rounded-[18px] bg-[#2563EB] hover:bg-[#1D4ED8] active:scale-[0.985] disabled:opacity-70 text-white font-semibold text-sm sm:text-base inline-flex items-center justify-center gap-2.5 shadow-lg shadow-[#2563EB]/35 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38E5FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#05132E]"
         >
           <span className="w-6 h-6 rounded-full bg-white inline-flex items-center justify-center shrink-0">
             <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
@@ -78,7 +102,7 @@ export const AuthScreen: React.FC = () => {
           </span>
           <span>{signingIn ? 'Signing in...' : 'Sign in with Google'}</span>
         </button>
-      </section>
+      </div>
     </div>
   );
 };

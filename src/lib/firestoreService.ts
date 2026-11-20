@@ -629,6 +629,58 @@ export async function saveDailyPlanBatch(
 }
 
 /**
+ * Deletes/replaces any previous draft plans for `dateIso` in `/users/{uid}/plans/...`
+ * and writes the newly generated Plan A/B/C documents (with Plan A auto-selected).
+ */
+export async function replaceDailyPlansForDate(
+  userId: string,
+  dateIso: string,
+  existingPlanIdsForDate: string[],
+  newPlans: Array<Omit<DailyPlan, 'id'>>
+): Promise<void> {
+  const path = `users/${userId}/plans`;
+  const now = Date.now();
+  try {
+    const batch = writeBatch(db);
+    const newDocIds = new Set(
+      newPlans.map((plan) => planDocId(plan.dateIso || dateIso, plan.variantCode))
+    );
+
+    // Delete any existing plan documents for this date before writing the fresh plans
+    for (const oldId of existingPlanIdsForDate) {
+      if (!oldId) continue;
+      const oldRef = doc(db, 'users', userId, 'plans', oldId);
+      if (!newDocIds.has(oldId)) {
+        batch.delete(oldRef);
+      } else {
+        batch.delete(oldRef);
+      }
+    }
+
+    for (const plan of newPlans) {
+      const docId = planDocId(plan.dateIso || dateIso, plan.variantCode);
+      const ref = doc(db, 'users', userId, 'plans', docId);
+      batch.set(
+        ref,
+        buildSafePlanPayload(
+          userId,
+          {
+            ...plan,
+            dateIso: plan.dateIso || dateIso,
+            isSelected: plan.variantCode === 'A',
+          },
+          now
+        )
+      );
+    }
+
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+/**
  * Atomically schedules or updates a visit and enforces the once-per-HCP-per-calendar-week
  * weeklyLocks invariant across ALL clinics using a Firestore transaction.
  */

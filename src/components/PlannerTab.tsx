@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeftRight,
@@ -15,6 +15,7 @@ import {
   Clock,
   Crosshair,
   Home,
+  Loader2,
   Lock,
   Navigation,
   Pencil,
@@ -55,12 +56,16 @@ import {
   isValidLatLng,
 } from '../utils/gpsLocationParser';
 import {
+  EXHAUSTED_COMBINATIONS_NOTE,
+  getRouteSignature,
+  getStopKey,
   optimizeDailyPlans,
   optimizeWeeklyPlans,
   recomputePlanFromStops,
 } from '../lib/routeOptimizer';
 import {
   commitPlanStopsWithLocks,
+  replaceDailyPlansForDate,
   saveDailyPlan,
   saveDailyPlanBatch,
   upsertVisitWithWeeklyLockTx,
@@ -109,6 +114,26 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
   const [addSearch, setAddSearch] = useState<string>('');
   const [addBrickFilter, setAddBrickFilter] = useState<string>('ALL');
   const [busyLocal, setBusyLocal] = useState<boolean>(false);
+  const [generatingRoutePlan, setGeneratingRoutePlan] = useState<boolean>(false);
+
+  // Fresh generation counter initialized with Date.now() % 1000 so page reloads also start fresh
+  const generationSeedRef = useRef<number>(Date.now() % 1000);
+  const clickCounterRef = useRef<number>(0);
+  const [lastGenBanner, setLastGenBanner] = useState<{
+    counter: number;
+    seed: number;
+    dateIso: string;
+    stopCount: number;
+    distinctCount: number;
+    lockedCount: number;
+    exhaustedNote?: string;
+  } | null>(null);
+  const [strategyBriefing, setStrategyBriefing] = useState<{
+    dateIso: string;
+    counter: number;
+    text: string;
+    loading: boolean;
+  } | null>(null);
 
   useEffect(() => {
     setStartLocationInput(settings.homeAddress || '');
@@ -408,10 +433,118 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
     onToast(`Shift hours set: ${formatMinuteOfDay(s)} – ${formatMinuteOfDay(e)}`);
   };
 
+  const buildFallbackStrategyBriefing = (
+    plan: DailyPlan,
+    allVariants: DailyPlan[],
+    distinctCount: number,
+    lockedPreservedCount: number
+  ): string => {
+    if (!plan || plan.stops.length === 0) {
+      return (
+        plan?.infeasibilityReasonsText ||
+        'No eligible clinics matched the selected shift window and weekly 1-visit-per-HCP constraints.'
+      );
+    }
+    const zones = Array.from(
+      new Set(plan.stops.map((s) => (s.zone || '').trim()).filter(Boolean))
+    );
+    const zoneSummary =
+      zones.length > 0 ? zones.slice(0, 3).join(', ') : 'selected territory bricks';
+    const firstStop = plan.stops[0];
+    const lastStop = plan.stops[plan.stops.length - 1];
+    const lockedText =
+      lockedPreservedCount > 0 ? ` (${lockedPreservedCount} locked/completed stop preserved)` : '';
+    return `Plan ${plan.variantCode} (${plan.variantLabel}) schedules ${plan.plannedVisitsCount} valid visits${lockedText} across ${zoneSummary} from ${formatMinuteOfDay(firstStop.visitStartMinute)} to ${formatMinuteOfDay(lastStop.visitEndMinute)} (${plan.totalDistanceKm.toFixed(1)} km, ${plan.totalDrivingMinutes}m drive • ${distinctCount} distinct route option${distinctCount === 1 ? '' : 's'}).`;
+  };
+
+  const regenerateAiStrategyBriefing = async (
+    dateIso: string,
+    counter: number,
+    generatedPlans: DailyPlan[],
+    primaryPlan: DailyPlan,
+    distinctCount: number,
+    lockedPreservedCount: number
+  ) => {
+    const fallbackText = buildFallbackStrategyBriefing(
+      primaryPlan,
+      generatedPlans,
+      distinctCount,
+      lockedPreservedCount
+    );
+    setStrategyBriefing({
+      dateIso,
+      counter,
+      text: fallbackText,
+      loading: true,
+    });
+
+    try {
+      const resp = await fetch('/api/ai/route-brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dateIso,
+          plans: generatedPlans,
+          targetVisits: targetOverride,
+          maxDutySpanMinutes: settings.maxDutySpanMinutes,
+        }),
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as { brief?: string };
+        if (data.brief && data.brief.trim()) {
+          setStrategyBriefing({
+            dateIso,
+            counter,
+            text: data.brief.trim(),
+            loading: false,
+          });
+          return;
+        }
+      }
+    } catch {
+      // Fall back cleanly to deterministic strategy summary
+    }
+
+    setStrategyBriefing({
+      dateIso,
+      counter,
+      text: fallbackText,
+      loading: false,
+    });
+  };
+
   const handleAiRoutePlan = async () => {
     if (!user) return;
+    setGeneratingRoutePlan(true);
     setBusy(true);
     try {
+      // Increment generationCounter (1, 2, 3...) and advance diversitySeed initialized from Date.now() % 1000
+      clickCounterRef.current += 1;
+      generationSeedRef.current += 1;
+      const currentClickCount = clickCounterRef.current;
+      const currentDiversitySeed = generationSeedRef.current;
+
+      // Capture previous displayed plan stop keys ("hcpId:clinicId") before regeneration
+      const previousPlanStopKeys = activePlan
+        ? activePlan.stops.map((s) => getStopKey(s))
+        : [];
+
+      // Keep any manually locked (isLocked === true) or already COMPLETED stops on selectedDate
+      const lockedStops: PlanStop[] = (activePlan?.stops || [])
+        .map((s) => {
+          const liveVisit = visitByHcpDate.get(`${s.hcpTargetId}__${selectedDate}`);
+          const effStatus: VisitStatus =
+            liveVisit?.status || s.executionStatus || 'PLANNED';
+          return {
+            ...s,
+            executionStatus: effStatus,
+            isLocked: Boolean(s.isLocked || effStatus === 'COMPLETED'),
+          };
+        })
+        .filter((s) => s.isLocked === true || s.executionStatus === 'COMPLETED');
+
+      const existingPlanIdsForDate = plansForSelectedDate.map((p) => p.id);
+
       const generated = optimizeDailyPlans({
         userId: user.uid,
         dateIso: selectedDate,
@@ -424,20 +557,66 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
         targetOverride,
         shiftStartMinute: shiftStartMin,
         shiftEndMinute: shiftEndMin,
+        diversitySeed: currentDiversitySeed,
+        previousPlanStopKeys,
+        lockedStops,
+        existingWeekPlans: plans,
       });
-      await saveDailyPlanBatch(user.uid, generated);
+
+      // Delete/replace previous draft plans for selectedDate in Firestore and save newly generated plans
+      await replaceDailyPlansForDate(
+        user.uid,
+        selectedDate,
+        existingPlanIdsForDate,
+        generated
+      );
       setActiveVariantCode('A');
+
       const primary = generated[0];
+      const nonEmptySignatures = new Set(
+        generated
+          .filter((p) => p.stops.length > 0)
+          .map((p) => getRouteSignature(p.stops))
+      );
+      const distinctCount =
+        nonEmptySignatures.size > 0 ? nonEmptySignatures.size : generated.length;
+      const hasExhaustedNote = generated.some((p) =>
+        (p.infeasibilityReasonsText || '').includes(EXHAUSTED_COMBINATIONS_NOTE)
+      );
+
+      setLastGenBanner({
+        counter: currentClickCount,
+        seed: currentDiversitySeed,
+        dateIso: selectedDate,
+        stopCount: primary.plannedVisitsCount,
+        distinctCount,
+        lockedCount: lockedStops.length,
+        exhaustedNote: hasExhaustedNote ? EXHAUSTED_COMBINATIONS_NOTE : undefined,
+      });
+
+      void regenerateAiStrategyBriefing(
+        selectedDate,
+        currentClickCount,
+        generated,
+        primary,
+        distinctCount,
+        lockedStops.length
+      );
+
       if (primary.feasibilityStatus === 'INFEASIBLE') {
-        onToast(primary.infeasibilityReasonsText || 'No feasible stops fit this shift.', 'error');
+        onToast(
+          primary.infeasibilityReasonsText || 'No feasible stops fit this shift.',
+          'error'
+        );
       } else {
         onToast(
-          `AI Route Plan ready: ${primary.plannedVisitsCount}/${targetOverride} visits in Plan A (${primary.totalDistanceKm.toFixed(1)} km).`
+          `Plan #${currentClickCount} Generated • ${primary.plannedVisitsCount} Visits (${distinctCount} options)`
         );
       }
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Route optimization failed.', 'error');
     } finally {
+      setGeneratingRoutePlan(false);
       setBusy(false);
     }
   };
@@ -446,6 +625,8 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
     if (!user) return;
     setBusy(true);
     try {
+      clickCounterRef.current += 1;
+      generationSeedRef.current += 1;
       const result = optimizeWeeklyPlans({
         userId: user.uid,
         dateIso: selectedDate,
@@ -458,6 +639,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
         targetOverride,
         shiftStartMinute: shiftStartMin,
         shiftEndMinute: shiftEndMin,
+        diversitySeed: generationSeedRef.current,
       });
       if (result.allPlans.length > 0) {
         await saveDailyPlanBatch(user.uid, result.allPlans);
@@ -482,6 +664,25 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
       isSelected: p.variantCode === variantCode,
     }));
     await saveDailyPlanBatch(user.uid, updated);
+    const picked = updated.find((p) => p.variantCode === variantCode);
+    if (picked && lastGenBanner && lastGenBanner.dateIso === selectedDate) {
+      setLastGenBanner((prev) =>
+        prev ? { ...prev, stopCount: picked.plannedVisitsCount } : prev
+      );
+      setStrategyBriefing((prev) =>
+        prev
+          ? {
+              ...prev,
+              text: buildFallbackStrategyBriefing(
+                picked,
+                updated,
+                lastGenBanner.distinctCount,
+                lastGenBanner.lockedCount
+              ),
+            }
+          : prev
+      );
+    }
   };
 
   const persistEditedStops = async (nextStops: PlanStop[]) => {
@@ -1099,12 +1300,21 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={busyLocal}
+              disabled={busyLocal || generatingRoutePlan}
               onClick={() => void handleAiRoutePlan()}
-              className="flex-[1.15] h-[48px] rounded-[14px] bg-[#2563EB] dark:bg-[#60A5FA] hover:opacity-95 disabled:opacity-60 text-white dark:text-[#071633] text-sm font-bold inline-flex items-center justify-center gap-2 shadow-xs"
+              className="flex-[1.15] h-[48px] rounded-[14px] bg-[#2563EB] dark:bg-[#60A5FA] hover:opacity-95 disabled:opacity-60 text-white dark:text-[#071633] text-sm font-bold inline-flex items-center justify-center gap-2 shadow-xs transition-opacity"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>AI Route Plan</span>
+              {generatingRoutePlan ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>Generating New Plan...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>AI Route Plan</span>
+                </>
+              )}
             </button>
 
             <button
@@ -1116,6 +1326,41 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
               <span>Add HCP</span>
             </button>
           </div>
+
+          {/* Generation Status Banner & AI Strategy Briefing */}
+          {lastGenBanner && lastGenBanner.dateIso === selectedDate && activePlan && (
+            <section className="rounded-[18px] bg-[#DBEAFE]/70 dark:bg-[#1E3A8A]/60 border border-[#2563EB]/35 dark:border-[#60A5FA]/40 px-3.5 py-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="inline-flex items-center gap-2 text-xs font-extrabold text-[#0B2559] dark:text-[#E0ECFF] tabular-nums">
+                  <Sparkles className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
+                  <span>
+                    Plan #{lastGenBanner.counter} Generated • {activePlan.plannedVisitsCount}{' '}
+                    Visits ({lastGenBanner.distinctCount} options)
+                  </span>
+                </div>
+                {lastGenBanner.lockedCount > 0 && (
+                  <span className="rounded-full bg-[#0F766E]/15 text-[#0F766E] dark:text-[#2DD4BF] px-2 py-0.5 text-[10px] font-bold tabular-nums">
+                    {lastGenBanner.lockedCount} locked kept
+                  </span>
+                )}
+              </div>
+
+              {(lastGenBanner.exhaustedNote ||
+                (activePlan.infeasibilityReasonsText || '').includes(
+                  EXHAUSTED_COMBINATIONS_NOTE
+                )) && (
+                <p className="text-[11px] font-semibold text-[#D97706] dark:text-amber-300 leading-snug">
+                  {EXHAUSTED_COMBINATIONS_NOTE}
+                </p>
+              )}
+
+              {strategyBriefing && strategyBriefing.dateIso === selectedDate && (
+                <p className="text-[11px] text-[#1E293B] dark:text-[#CBD5E1] leading-relaxed">
+                  {strategyBriefing.text}
+                </p>
+              )}
+            </section>
+          )}
 
           {/* 5. Alternative Plans Comparison Card ("Route Options (3)", rounded-[22px]) */}
           {plansForSelectedDate.length > 0 && activePlan && (
@@ -1135,8 +1380,52 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                   onClick={() => setShowComparePlans((v) => !v)}
                   className="px-3.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#475569] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#334155]"
                 >
-                  Compare A/B/C
+                  {showComparePlans ? 'Hide Details' : 'Compare A/B/C'}
                 </button>
+              </div>
+
+              {/* Always-visible Alternative Plans Comparison Pills (Option 1 / Plan A, Option 2 / Plan B, Option 3 / Plan C) */}
+              <div className="grid grid-cols-3 gap-2">
+                {plansForSelectedDate.map((p, idx) => {
+                  const selected = p.variantCode === activePlan.variantCode;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => void handleSelectVariant(p.variantCode)}
+                      className={`rounded-[14px] px-2.5 py-2 text-left border transition-colors min-w-0 ${
+                        selected
+                          ? 'bg-[#2563EB] dark:bg-[#1D4ED8] text-white border-[#2563EB] dark:border-[#60A5FA] shadow-xs'
+                          : 'bg-[#F8FAFC] dark:bg-[#0F172A]/70 text-[#0F172A] dark:text-[#F8FAFC] border-[#CBD5E1] dark:border-[#334155] hover:bg-[#F1F5F9] dark:hover:bg-[#334155]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-extrabold truncate">
+                          Option {idx + 1} • Plan {p.variantCode}
+                        </span>
+                        {selected && <Check className="w-3 h-3 shrink-0" />}
+                      </div>
+                      <p
+                        className={`mt-0.5 text-[10px] truncate ${
+                          selected
+                            ? 'text-blue-100'
+                            : 'text-[#475569] dark:text-[#CBD5E1]'
+                        }`}
+                      >
+                        {p.variantLabel}
+                      </p>
+                      <p
+                        className={`mt-1 text-[11px] font-bold tabular-nums truncate ${
+                          selected
+                            ? 'text-white'
+                            : 'text-[#0F766E] dark:text-[#2DD4BF]'
+                        }`}
+                      >
+                        {p.plannedVisitsCount} visits • {p.totalDistanceKm.toFixed(1)} km
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Active Plan Dropdown Selector */}
@@ -1146,10 +1435,10 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                 className="w-full max-w-full min-w-0 truncate h-11 px-3.5 rounded-full border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
                 aria-label="Select route variant"
               >
-                {plansForSelectedDate.map((p) => (
+                {plansForSelectedDate.map((p, idx) => (
                   <option key={p.id} value={p.variantCode}>
-                    Plan {p.variantCode}: {p.variantLabel} ({p.plannedVisitsCount} visits •{' '}
-                    {p.totalDistanceKm.toFixed(1)} km)
+                    Option {idx + 1} / Plan {p.variantCode}: {p.variantLabel} (
+                    {p.plannedVisitsCount} visits • {p.totalDistanceKm.toFixed(1)} km)
                   </option>
                 ))}
               </select>
@@ -1157,7 +1446,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
               {/* Expandable A/B/C Comparison Grid */}
               {showComparePlans && (
                 <div className="grid grid-cols-1 gap-2 pt-1">
-                  {plansForSelectedDate.map((p) => {
+                  {plansForSelectedDate.map((p, idx) => {
                     const selected = p.variantCode === activePlan.variantCode;
                     return (
                       <button
@@ -1172,7 +1461,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC]">
-                            Plan {p.variantCode} • {p.variantLabel}
+                            Option {idx + 1} / Plan {p.variantCode} • {p.variantLabel}
                           </span>
                           <span
                             className={`text-[11px] font-bold ${
@@ -1188,16 +1477,28 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                         </div>
                         <div className="mt-1.5 grid grid-cols-4 gap-2 text-[11px] tabular-nums text-[#475569] dark:text-[#CBD5E1]">
                           <span>
-                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">{p.plannedVisitsCount}</strong> visits
+                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">
+                              {p.plannedVisitsCount}
+                            </strong>{' '}
+                            visits
                           </span>
                           <span>
-                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">{p.totalDrivingMinutes}m</strong> drive
+                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">
+                              {p.totalDrivingMinutes}m
+                            </strong>{' '}
+                            drive
                           </span>
                           <span>
-                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">{p.totalDistanceKm.toFixed(1)}</strong> km
+                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">
+                              {p.totalDistanceKm.toFixed(1)}
+                            </strong>{' '}
+                            km
                           </span>
                           <span>
-                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">{formatDuration(p.totalDutySpanMinutes)}</strong> span
+                            <strong className="text-[#0F172A] dark:text-[#F8FAFC]">
+                              {formatDuration(p.totalDutySpanMinutes)}
+                            </strong>{' '}
+                            span
                           </span>
                         </div>
                       </button>
