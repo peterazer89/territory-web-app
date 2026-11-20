@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { AppTab } from '../types/territory';
 import { useTerritory } from '../context/TerritoryContext';
-import { PharmacyBadgeIcon } from './BrandMark';
+import { TerritoryRxIcon } from './BrandMark';
 
 export interface ToastMessage {
   id: number;
@@ -87,7 +87,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           className="h-16 px-3 lg:px-4 flex items-center justify-center lg:justify-start gap-2.5 border-b border-[#E2E8F0] dark:border-[#334155] hover:bg-[#F1F5F9] dark:hover:bg-[#334155]/50 transition-colors"
           title="Open Territory Rx Welcome Poster"
         >
-          <PharmacyBadgeIcon className="w-[34px] h-[34px]" />
+          <TerritoryRxIcon size={36} rounded={8} className="shadow-xs" />
           <span className="hidden lg:inline text-base font-extrabold tracking-tight text-[#0F172A] dark:text-[#F8FAFC]">
             Territory <span className="text-[#2563EB] dark:text-[#60A5FA]">Rx</span>
           </span>
@@ -153,7 +153,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             className="inline-flex items-center gap-2.5 px-2 py-1 rounded-2xl hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors"
             title="Tap to view Opening Poster"
           >
-            <PharmacyBadgeIcon className="w-[34px] h-[34px]" />
+            <TerritoryRxIcon size={36} rounded={8} className="shadow-xs" />
             <span className="text-[19px] font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] whitespace-nowrap">
               {TOP_TITLES[activeTab]}
             </span>

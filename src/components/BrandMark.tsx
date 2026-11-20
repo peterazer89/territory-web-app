@@ -1,63 +1,67 @@
-import React from 'react';
+import React, { useId } from 'react';
+
+interface TerritoryRxIconProps {
+  size?: number | string;
+  rounded?: number | string;
+  className?: string;
+}
 
 /**
- * Custom Territory Rx Blue Map Pin Logo:
- * Vertical gradient #0096FF -> #073B8A, white circle inside with blue medical "+" cross,
- * and white curved road swoosh underneath.
+ * Territory Rx Android launcher icon component:
+ * Diagonal #0A3D62 -> #079992 gradient background with white medical map pin,
+ * clipped to a rounded-square frame (default border-radius: 22%).
  */
-export const TerritoryRxPinLogo: React.FC<{ className?: string }> = ({ className = 'w-14 h-14' }) => (
-  <svg
-    viewBox="0 0 80 86"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    aria-hidden="true"
-  >
-    <defs>
-      <linearGradient id="trxPinGrad" x1="40" y1="4" x2="40" y2="74" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stopColor="#0096FF" />
-        <stop offset="100%" stopColor="#073B8A" />
-      </linearGradient>
-    </defs>
-    {/* Map Pin Body */}
-    <path
-      d="M40 4C22.327 4 8 18.327 8 36C8 55.2 31.8 73.2 37.9 77.6C39.15 78.5 40.85 78.5 42.1 77.6C48.2 73.2 72 55.2 72 36C72 18.327 57.673 4 40 4Z"
-      fill="url(#trxPinGrad)"
-    />
-    {/* White Inner Circle */}
-    <circle cx="40" cy="34" r="19" fill="#FFFFFF" />
-    {/* Blue Medical Cross */}
-    <rect x="35.5" y="22.5" width="9" height="23" rx="2.2" fill="#0A6BFF" />
-    <rect x="28.5" y="29.5" width="23" height="9" rx="2.2" fill="#0A6BFF" />
-    {/* White Curved Road Swoosh underneath */}
-    <path
-      d="M11 76C25 65 48 56 69 51"
-      stroke="#FFFFFF"
-      strokeWidth="5"
-      strokeLinecap="round"
-    />
-  </svg>
+export const TerritoryRxIcon: React.FC<TerritoryRxIconProps> = ({
+  size = 40,
+  rounded,
+  className = '',
+}) => {
+  const gradId = useId().replace(/:/g, '');
+  const borderRadius =
+    rounded !== undefined
+      ? typeof rounded === 'number'
+        ? `${rounded}px`
+        : rounded
+      : '22%';
+
+  return (
+    <span
+      className={`inline-block shrink-0 overflow-hidden select-none ${className}`}
+      style={{
+        width: typeof size === 'number' ? `${size}px` : size,
+        height: typeof size === 'number' ? `${size}px` : size,
+        borderRadius,
+      }}
+      aria-hidden="true"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 512 512"
+        className="w-full h-full block"
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#0A3D62" />
+            <stop offset="100%" stopColor="#079992" />
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" fill={`url(#${gradId})`} />
+        <g transform="translate(44.8, 44.8) scale(17.6)">
+          <path
+            fill="#FFFFFF"
+            fillRule="evenodd"
+            d="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM15,10h-2v2h-2v-2H9V8h2V6h2v2h2v2z"
+          />
+        </g>
+      </svg>
+    </span>
+  );
+};
+
+export const TerritoryRxPinLogo: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <TerritoryRxIcon size={64} rounded={14} className={className} />
 );
 
-/**
- * 34px circular gradient badge (#2563EB -> #0F766E) with white pharmacy mortar icon
- * used in the Center-Aligned Top App Bar.
- */
-export const PharmacyBadgeIcon: React.FC<{ className?: string }> = ({ className = 'w-[34px] h-[34px]' }) => (
-  <span
-    className={`${className} rounded-full bg-gradient-to-br from-[#2563EB] via-[#0EA5E9] to-[#2DD4BF] inline-flex items-center justify-center shrink-0 shadow-xs`}
-    aria-hidden="true"
-  >
-    <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none">
-      {/* Pestle */}
-      <path d="M15.8 4.2L18.2 5.4L15.6 9.8H13.1L15.8 4.2Z" fill="#071633" />
-      {/* Mortar Bowl */}
-      <path
-        d="M5 10.5H19V12.5L17.4 18.4C17.1 19.3 16.3 20 15.3 20H8.7C7.7 20 6.9 19.3 6.6 18.4L5 12.5V10.5Z"
-        fill="#071633"
-      />
-      {/* Medical Cross */}
-      <path d="M11.1 12.6H12.9V14.4H14.7V16.2H12.9V18H11.1V16.2H9.3V14.4H11.1V12.6Z" fill="#FFFFFF" />
-    </svg>
-  </span>
+export const PharmacyBadgeIcon: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <TerritoryRxIcon size={36} rounded={8} className={className} />
 );

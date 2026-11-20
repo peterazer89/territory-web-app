@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTerritory } from '../context/TerritoryContext';
-import { TerritoryRxPinLogo } from './BrandMark';
+import { TerritoryRxIcon } from './BrandMark';
 
 import posterImageUrl from '../assets/images/territory_rx_poster_1795111468529.jpg';
 
@@ -30,7 +30,7 @@ export const AuthScreen: React.FC = () => {
 
       {/* Top Branding Hint */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center text-center py-8">
-        <TerritoryRxPinLogo className="w-16 h-[68px] drop-shadow-lg" />
+        <TerritoryRxIcon size={76} rounded={17} className="shadow-2xl ring-1 ring-white/25" />
       </div>
 
       {/* Bottom-Aligned Rounded-[26px] Card (95% opaque surface, 1px primary border) */}

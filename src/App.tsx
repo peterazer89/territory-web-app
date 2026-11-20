@@ -10,7 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OpeningPosterScreen } from './components/OpeningPosterScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { AppShell, ToastMessage } from './components/AppShell';
-import { TerritoryRxPinLogo } from './components/BrandMark';
+import { TerritoryRxIcon } from './components/BrandMark';
 import { PlannerTab } from './components/PlannerTab';
 import { HcpsTab } from './components/HcpsTab';
 import { ImportTab } from './components/ImportTab';
@@ -48,7 +48,7 @@ const TerritoryAppContent: React.FC = () => {
   if (!authReady) {
     return (
       <div className="min-h-screen bg-[#071633] flex flex-col items-center justify-center gap-4 text-white p-6">
-        <TerritoryRxPinLogo className="w-16 h-[68px]" />
+        <TerritoryRxIcon size={68} rounded={15} className="shadow-xl ring-1 ring-white/20" />
         <div className="text-center">
           <p className="text-lg font-extrabold tracking-tight">
             Territory <span className="text-[#0A6BFF]">Rx</span>

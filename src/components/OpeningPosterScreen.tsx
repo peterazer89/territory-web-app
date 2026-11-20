@@ -1,4 +1,5 @@
 import React from 'react';
+import { TerritoryRxIcon } from './BrandMark';
 
 const OPENING_POSTER_URL = '/assets/aistudio/photo_2026-11-19_21-13-36_e375b724.jpg';
 
@@ -37,7 +38,7 @@ export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStar
           className="w-full h-full object-cover object-center block"
         />
 
-        {/* Soft sky-frost veil over the top 3.6% to cleanly mask the phone status bar */}
+        {/* Soft sky-frost veil over the top 3.8% to cleanly mask the phone status bar */}
         <div
           aria-hidden="true"
           className="absolute top-0 left-0 right-0 h-[3.8%] pointer-events-none"
@@ -46,6 +47,18 @@ export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStar
               'linear-gradient(180deg, #EDF3FA 0%, rgba(237,243,250,0.92) 65%, rgba(237,243,250,0) 100%)',
           }}
         />
+
+        {/* Opening Poster Header Icon Badge aligned next to "Territory Rx" */}
+        <div
+          aria-hidden="true"
+          className="absolute left-[15.6%] top-[5.4%] w-[15.2%] aspect-square flex items-center justify-center rounded-2xl pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(circle at center, #ECF3FA 66%, rgba(236,243,250,0) 100%)',
+          }}
+        >
+          <TerritoryRxIcon size="82%" className="shadow-md ring-1 ring-[#0A3D62]/15" />
+        </div>
 
         {/* Interactive CTA aligned directly over "Start AI Route Planning →" */}
         <button

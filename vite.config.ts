@@ -12,39 +12,15 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
-        manifest: {
-          id: '/',
-          name: 'Territory Rx — HCP Territory Planner',
-          short_name: 'TerritoryRx',
-          description: 'AI-Powered HCP Territory Planning Platform for daily and weekly medical field route optimization and clinic coverage tracking.',
-          theme_color: '#0B2559',
-          background_color: '#0B2559',
-          display: 'standalone',
-          orientation: 'any',
-          start_url: '/',
-          scope: '/',
-          icons: [
-            {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-          ],
-        },
+        manifest: false,
+        includeAssets: [
+          'icon.svg',
+          'favicon-32x32.png',
+          'apple-touch-icon.png',
+          'icon-192.png',
+          'icon-512.png',
+          'manifest.webmanifest',
+        ],
         workbox: {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
