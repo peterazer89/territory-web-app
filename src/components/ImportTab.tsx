@@ -913,7 +913,7 @@ export const ImportTab: React.FC<ImportTabProps> = ({ onToast, onBusyChange }) =
                     prev ? { ...prev, quarterlyTarget: e.target.value } : prev
                   )
                 }
-                className="h-[32px] px-2.5 rounded-lg border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] text-[11px] font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
+                className="w-full sm:w-auto sm:max-w-[230px] min-w-0 truncate h-[32px] px-2.5 rounded-lg border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] text-[11px] font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
               >
                 <option value="">— Default (8 visits/quarter) —</option>
                 {parsedSheet.headers.map((h) => (
@@ -1012,7 +1012,7 @@ export const ImportTab: React.FC<ImportTabProps> = ({ onToast, onBusyChange }) =
                             prev ? { ...prev, [field.key]: e.target.value } : prev
                           )
                         }
-                        className="w-full h-[34px] px-2 rounded-lg border border-[#E2E8F0] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[11px] text-[#0F172A] dark:text-[#F8FAFC]"
+                        className="w-full max-w-full min-w-0 truncate h-[34px] px-2 rounded-lg border border-[#E2E8F0] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[11px] text-[#0F172A] dark:text-[#F8FAFC]"
                       >
                         <option value="">— None —</option>
                         {parsedSheet.headers.map((h) => (

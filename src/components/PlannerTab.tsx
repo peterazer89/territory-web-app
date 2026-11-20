@@ -1006,7 +1006,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                   if (e.target.value) void handlePickStartZone(e.target.value);
                 }}
                 aria-label="Pick starting Brick or Zone"
-                className="w-full h-9 px-2.5 rounded-xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs text-[#0F172A] dark:text-[#F8FAFC]"
+                className="w-full max-w-full min-w-0 truncate h-9 px-2.5 rounded-xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs text-[#0F172A] dark:text-[#F8FAFC]"
               >
                 <option value="">Or pick a starting Brick / Zone...</option>
                 {EGYPT_ZONE_CENTROIDS.map((z) => (
@@ -1143,7 +1143,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
               <select
                 value={activePlan.variantCode}
                 onChange={(e) => void handleSelectVariant(e.target.value)}
-                className="w-full h-11 px-3.5 rounded-full border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
+                className="w-full max-w-full min-w-0 truncate h-11 px-3.5 rounded-full border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
                 aria-label="Select route variant"
               >
                 {plansForSelectedDate.map((p) => (
@@ -1378,7 +1378,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                     return (
                       <section
                         key={`${stop.clinicKey}_${idx}`}
-                        className="rounded-[22px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-4 space-y-3.5"
+                        className="rounded-[22px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-4 space-y-3.5 overflow-hidden"
                       >
                         {/* Top Travel Strip */}
                         <div className="rounded-xl bg-[#F1F5F9] dark:bg-[#334155]/75 px-3 py-2 text-xs font-semibold text-[#475569] dark:text-[#CBD5E1] flex items-center gap-2 tabular-nums">
@@ -1401,7 +1401,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                         </div>
 
                         {/* Doctor Header Row */}
-                        <div className="flex items-start gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
                           <span
                             className={`w-10 h-10 rounded-full text-sm font-extrabold tabular-nums inline-flex items-center justify-center shrink-0 ${
                               effectiveStatus === 'COMPLETED'
@@ -1420,9 +1420,9 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                             )}
                           </span>
 
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 flex-1 overflow-hidden">
                             <h3
-                              className={`text-base font-bold leading-snug ${
+                              className={`text-base font-bold leading-snug break-words ${
                                 effectiveStatus === 'CANCELLED'
                                   ? 'line-through text-[#475569] dark:text-[#CBD5E1]'
                                   : 'text-[#0F172A] dark:text-[#F8FAFC]'
@@ -1431,23 +1431,28 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                             >
                               {stop.hcpName}
                             </h3>
-                            <p
-                              className="mt-0.5 text-xs font-medium text-[#2563EB] dark:text-[#60A5FA] leading-relaxed"
-                              dir="auto"
-                            >
-                              {stop.specialty || 'General'} • {stop.clinicLabel}
-                              {stop.zone ? ` • ${stop.zone}` : ''}
+                            <p className="mt-0.5 text-xs font-medium text-[#2563EB] dark:text-[#60A5FA] leading-relaxed break-words">
+                              <span>
+                                {stop.specialty || 'General'} • {stop.clinicLabel}
+                              </span>
+                              {stop.zone ? (
+                                <>
+                                  {' • '}
+                                  <bdi dir="auto">{stop.zone}</bdi>
+                                </>
+                              ) : null}
                             </p>
 
                             {hcpClinics.length > 1 && (
                               <select
+                                dir="ltr"
                                 value={stop.clinicKey}
                                 onChange={(e) => void handleSwitchStopClinic(idx, e.target.value)}
-                                className="mt-1.5 h-8 px-2.5 rounded-lg border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
+                                className="mt-1.5 w-full max-w-full min-w-0 truncate h-8 px-2.5 rounded-lg border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
                               >
                                 {hcpClinics.map((c) => (
                                   <option key={c.clinicKey} value={c.clinicKey}>
-                                    Switch to {c.label} {c.zone ? `(${c.zone})` : ''}
+                                    {`Switch to ${c.label}${c.zone ? ` (${c.zone})` : ''}`}
                                   </option>
                                 ))}
                               </select>

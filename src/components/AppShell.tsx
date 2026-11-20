@@ -182,7 +182,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         )}
 
         {/* Mobile-First Centered Canvas (max-w-[560px] matching Android Material 3 feed) */}
-        <main className="flex-1 w-full max-w-[560px] mx-auto px-3.5 sm:px-4 pt-3 pb-28 md:pb-12">
+        <main className="flex-1 w-full min-w-0 max-w-[560px] mx-auto px-3.5 sm:px-4 pt-3 pb-28 md:pb-12 overflow-x-hidden">
           {children}
         </main>
       </div>
