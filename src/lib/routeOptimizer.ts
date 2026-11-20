@@ -64,7 +64,9 @@ export function getStopKey(stop: Pick<PlanStop, 'hcpTargetId' | 'clinicKey'>): s
   return `${stop.hcpTargetId}:${stop.clinicKey}`;
 }
 
-export function getRouteSignature(stops: Array<Pick<PlanStop, 'hcpTargetId' | 'clinicKey'>>): string {
+export function getRouteSignature(
+  stops: Array<Pick<PlanStop, 'hcpTargetId' | 'clinicKey'>>
+): string {
   return stops.map((s) => `${s.hcpTargetId}:${s.clinicKey}`).join('>');
 }
 
@@ -327,7 +329,10 @@ export function recomputePlanFromStops(params: {
         waitMins = Math.max(0, visitStart - arrival);
       } else {
         visitStart = arrival;
-        if (dayWindows.length > 0 || (clinic && getEffectiveClinicWindows(clinic).windows.length > 0)) {
+        if (
+          dayWindows.length > 0 ||
+          (clinic && getEffectiveClinicWindows(clinic).windows.length > 0)
+        ) {
           windowViolations++;
           reasons.push(
             `${raw.hcpName} (${raw.clinicLabel}) arrives at ${formatMinuteOfDay(arrival)}, outside clinic/shift hours.`
@@ -451,6 +456,10 @@ interface EvaluatedCandidateRoute {
   stops: PlanStop[];
   signature: string;
   hcpSetSignature: string;
+  totalDistanceKm: number;
+  interHcpDistanceKm: number;
+  totalDrive: number;
+  totalWait: number;
   aggregateScore: number;
   overlapWithPrevCount: number;
 }
@@ -467,11 +476,20 @@ function tryScheduleSlotSequenceStrict(
 ): {
   stops: PlanStop[];
   totalDrive: number;
+  totalDistanceKm: number;
+  interHcpDistanceKm: number;
   totalWait: number;
   dutySpan: number;
 } | null {
   if (sequence.length === 0) {
-    return { stops: [], totalDrive: 0, totalWait: 0, dutySpan: 0 };
+    return {
+      stops: [],
+      totalDrive: 0,
+      totalDistanceKm: 0,
+      interHcpDistanceKm: 0,
+      totalWait: 0,
+      dutySpan: 0,
+    };
   }
 
   const maxDuty = Math.max(60, settings.maxDutySpanMinutes || 480);
@@ -483,6 +501,8 @@ function tryScheduleSlotSequenceStrict(
   let prevLat: number | null = hasHome ? settings.homeLatitude : null;
   let prevLng: number | null = hasHome ? settings.homeLongitude : null;
   let totalDrive = 0;
+  let totalDistanceKm = 0;
+  let interHcpDistanceKm = 0;
   let totalWait = 0;
 
   for (let i = 0; i < sequence.length; i++) {
@@ -547,7 +567,7 @@ function tryScheduleSlotSequenceStrict(
       return null;
     }
 
-    const returnHomeMin =
+    const returnHomeTravel =
       settings.returnHomeRequired && hasHome
         ? estimateTravel(
             slot.clinic.latitude,
@@ -555,14 +575,18 @@ function tryScheduleSlotSequenceStrict(
             settings.homeLatitude,
             settings.homeLongitude,
             settings.trafficSafetyBufferPercent
-          ).travelMinutes
-        : 0;
+          )
+        : { distanceKm: 0, travelMinutes: 0, isSameBuilding: false };
 
-    if (visitEnd + returnHomeMin - dutyStart > maxDuty) {
+    if (visitEnd + returnHomeTravel.travelMinutes - dutyStart > maxDuty) {
       return null;
     }
 
     totalDrive += travel.travelMinutes;
+    totalDistanceKm = Number((totalDistanceKm + travel.distanceKm).toFixed(2));
+    if (i > 0) {
+      interHcpDistanceKm = Number((interHcpDistanceKm + travel.distanceKm).toFixed(2));
+    }
     totalWait += waitMin;
     currentClock = visitEnd;
     prevLat = slot.clinic.latitude;
@@ -598,13 +622,115 @@ function tryScheduleSlotSequenceStrict(
           settings.homeLatitude,
           settings.homeLongitude,
           settings.trafficSafetyBufferPercent
-        ).travelMinutes
-      : 0;
+        )
+      : { distanceKm: 0, travelMinutes: 0, isSameBuilding: false };
 
-  const dutySpan = Math.max(0, currentClock + returnLeg - dutyStart);
+  const dutySpan = Math.max(0, currentClock + returnLeg.travelMinutes - dutyStart);
   if (dutySpan > maxDuty) return null;
 
-  return { stops, totalDrive, totalWait, dutySpan };
+  return {
+    stops,
+    totalDrive: totalDrive + returnLeg.travelMinutes,
+    totalDistanceKm: Number((totalDistanceKm + returnLeg.distanceKm).toFixed(2)),
+    interHcpDistanceKm,
+    totalWait,
+    dutySpan,
+  };
+}
+
+/**
+ * Post-processes a feasible sequence of slots using 2-Opt segment reversals and single-stop
+ * relocations to find the 100% constraint-valid ordering with the smallest total distance
+ * between HCPs.
+ */
+function optimizeSlotSequenceForMinDistance(
+  initialSequence: CandidateClinicSlot[],
+  settings: WorkSettings
+): {
+  sequence: CandidateClinicSlot[];
+  stops: PlanStop[];
+  totalDrive: number;
+  totalDistanceKm: number;
+  interHcpDistanceKm: number;
+  totalWait: number;
+} | null {
+  const initialScheduled = tryScheduleSlotSequenceStrict(initialSequence, settings);
+  if (!initialScheduled) return null;
+  if (initialSequence.length <= 1) {
+    return {
+      sequence: initialSequence,
+      ...initialScheduled,
+    };
+  }
+
+  let bestSeq = [...initialSequence];
+  let bestScheduled = initialScheduled;
+
+  const isBetterSchedule = (
+    cand: NonNullable<ReturnType<typeof tryScheduleSlotSequenceStrict>>,
+    curr: NonNullable<ReturnType<typeof tryScheduleSlotSequenceStrict>>
+  ): boolean => {
+    if (cand.interHcpDistanceKm + 0.01 < curr.interHcpDistanceKm) return true;
+    if (Math.abs(cand.interHcpDistanceKm - curr.interHcpDistanceKm) <= 0.01) {
+      if (cand.totalDistanceKm + 0.01 < curr.totalDistanceKm) return true;
+      if (
+        Math.abs(cand.totalDistanceKm - curr.totalDistanceKm) <= 0.01 &&
+        cand.totalDrive < curr.totalDrive
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let improved = true;
+  let pass = 0;
+  while (improved && pass < 4) {
+    improved = false;
+    pass++;
+
+    // 1. 2-Opt segment reversals
+    for (let i = 0; i < bestSeq.length - 1; i++) {
+      for (let j = i + 1; j < bestSeq.length; j++) {
+        const reversed = [
+          ...bestSeq.slice(0, i),
+          ...bestSeq.slice(i, j + 1).reverse(),
+          ...bestSeq.slice(j + 1),
+        ];
+        const scheduled = tryScheduleSlotSequenceStrict(reversed, settings);
+        if (scheduled && isBetterSchedule(scheduled, bestScheduled)) {
+          bestSeq = reversed;
+          bestScheduled = scheduled;
+          improved = true;
+        }
+      }
+    }
+
+    // 2. Single-stop relocation (move stop i to position pos)
+    for (let i = 0; i < bestSeq.length; i++) {
+      const item = bestSeq[i];
+      const withoutItem = [...bestSeq.slice(0, i), ...bestSeq.slice(i + 1)];
+      for (let pos = 0; pos <= withoutItem.length; pos++) {
+        if (pos === i) continue;
+        const relocated = [
+          ...withoutItem.slice(0, pos),
+          item,
+          ...withoutItem.slice(pos),
+        ];
+        const scheduled = tryScheduleSlotSequenceStrict(relocated, settings);
+        if (scheduled && isBetterSchedule(scheduled, bestScheduled)) {
+          bestSeq = relocated;
+          bestScheduled = scheduled;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return {
+    sequence: bestSeq,
+    ...bestScheduled,
+  };
 }
 
 function buildVariantStopsWithDiversity(params: {
@@ -638,7 +764,6 @@ function buildVariantStopsWithDiversity(params: {
     return { stops: [], exhaustedAllCombinations: false };
   }
 
-  const maxDuty = Math.max(60, settings.maxDutySpanMinutes || 480);
   const hasHome = isValidCoordinatePair(settings.homeLatitude, settings.homeLongitude);
 
   // Normalize previousPlanStopKeys so we can check both exact stop key ("hcpId:clinicKey") and hcpId
@@ -670,7 +795,7 @@ function buildVariantStopsWithDiversity(params: {
   const seedRepeatPenaltyMag =
     strategy === 'BALANCED' ? 2.8 : strategy === 'MIN_DRIVE' ? 2.2 : 3.5;
   const stepRepeatPenaltyMag =
-    strategy === 'BALANCED' ? 24 : strategy === 'MIN_DRIVE' ? 19 : 30;
+    strategy === 'BALANCED' ? 35 : strategy === 'MIN_DRIVE' ? 28 : 42;
 
   const isRepeatedCandidate = (c: CandidateClinicSlot): boolean => {
     const key = `${c.hcp.targetId}:${c.clinic.clinicKey}`;
@@ -682,7 +807,44 @@ function buildVariantStopsWithDiversity(params: {
     );
   };
 
-  // Base priority score without diversity perturbation
+  const lockedHcpSet = new Set(fixedLockedSlots.map((s) => s.hcp.targetId));
+  const unlockedCandidates = candidates.filter((c) => !lockedHcpSet.has(c.hcp.targetId));
+
+  // Precompute local spatial cluster tightness for each candidate:
+  // average road distance (km) to its K nearest distinct-HCP eligible neighbors
+  const kNeighbors = Math.max(1, Math.min(targetVisits - 1, 6));
+  const clusterTightnessByClinicKey = new Map<string, number>();
+
+  for (const c of unlockedCandidates) {
+    if (clusterTightnessByClinicKey.has(c.clinic.clinicKey)) continue;
+    const distsByHcp = new Map<string, number>();
+    for (const other of unlockedCandidates) {
+      if (other.hcp.targetId === c.hcp.targetId) continue;
+      const d = estimateTravel(
+        c.clinic.latitude,
+        c.clinic.longitude,
+        other.clinic.latitude,
+        other.clinic.longitude,
+        settings.trafficSafetyBufferPercent
+      ).distanceKm;
+      const prevBest = distsByHcp.get(other.hcp.targetId);
+      if (prevBest === undefined || d < prevBest) {
+        distsByHcp.set(other.hcp.targetId, d);
+      }
+    }
+    const nearest = Array.from(distsByHcp.values())
+      .sort((a, b) => a - b)
+      .slice(0, kNeighbors);
+    const avgKnnKm =
+      nearest.length > 0
+        ? nearest.reduce((sum, v) => sum + v, 0) / nearest.length
+        : 5;
+    // Higher score = tighter cluster of nearby doctors around this clinic
+    const clusterScore = 1 / (1 + avgKnnKm * 1.2);
+    clusterTightnessByClinicKey.set(c.clinic.clinicKey, clusterScore);
+  }
+
+  // Base anchor score prioritizing dense geographic clusters so the entire plan stays in a tight pocket
   const baseScoreSeed = (c: CandidateClinicSlot): number => {
     const hcpTarget = Math.max(1, c.hcp.quarterlyTarget || 8);
     const remScore = Math.min(1, c.remainingVisits / hcpTarget);
@@ -692,6 +854,7 @@ function buildVariantStopsWithDiversity(params: {
     );
     const prioScore = Math.min(1, (c.hcp.priorityScore || 50) / 100);
     const specScore = getSpecialtyRankBonus(c.hcp.specialty, settings);
+    const clusterScore = clusterTightnessByClinicKey.get(c.clinic.clinicKey) ?? 0.5;
     const homeDist = hasHome
       ? estimateTravel(
           settings.homeLatitude,
@@ -701,18 +864,24 @@ function buildVariantStopsWithDiversity(params: {
           settings.trafficSafetyBufferPercent
         ).distanceKm
       : 0;
-    const distScore = 1 / (1 + homeDist / 10);
+    const homeDistScore = hasHome ? 1 / (1 + homeDist / 6) : clusterScore;
 
     if (strategy === 'MIN_DRIVE') {
-      return distScore * 0.55 + (1 - c.windowStart / 1440) * 0.25 + remScore * 0.2;
+      return clusterScore * 1.6 + homeDistScore * 0.6 + (1 - c.windowStart / 1440) * 0.2 + remScore * 0.25;
     }
     if (strategy === 'COVERAGE_RECOVERY') {
-      return remScore * 0.5 + overdueScore * 0.3 + prioScore * 0.15 + specScore * 0.05;
+      return clusterScore * 1.15 + remScore * 0.65 + overdueScore * 0.25 + prioScore * 0.15 + specScore * 0.1;
     }
     const wSpec = (settings.priorityWeightSpecialtyPercent ?? 25) / 100;
     const wRem = (settings.priorityWeightRemainingVisitsPercent ?? 45) / 100;
     const wDist = (settings.priorityWeightTravelDistancePercent ?? 30) / 100;
-    return remScore * wRem + specScore * wSpec + distScore * wDist + prioScore * 0.15;
+    return (
+      clusterScore * 1.45 +
+      homeDistScore * wDist +
+      remScore * wRem * 0.6 +
+      specScore * wSpec * 0.4 +
+      prioScore * 0.15
+    );
   };
 
   // Perturbed anchor score incorporating diversitySeed + soft repeat penalty
@@ -729,51 +898,91 @@ function buildVariantStopsWithDiversity(params: {
     return score;
   };
 
-  const lockedHcpSet = new Set(fixedLockedSlots.map((s) => s.hcp.targetId));
-  const unlockedCandidates = candidates.filter((c) => !lockedHcpSet.has(c.hcp.targetId));
-
-  // Score an individual candidate step given previous slot
+  /**
+   * Scores candidate step `cand` from `prevSlot` and `anchorSlot`, heavily prioritizing
+   * the smallest distance between consecutive HCPs (and compactness around the anchor cluster).
+   */
   const computeStepScore = (
+    anchorSlot: CandidateClinicSlot | null,
     prevSlot: CandidateClinicSlot | null,
     cand: CandidateClinicSlot,
+    distKm: number,
     travelMin: number,
     isSameBuilding: boolean,
     waitMin: number,
     customSeed = variantSeed
   ): number => {
-    const sameBuildingBonus = isSameBuilding ? 45 : 0;
-    const prevZone = prevSlot ? prevSlot.clinic.zone || prevSlot.hcp.zone : '';
-    const candZone = cand.clinic.zone || cand.hcp.zone;
-    const sameZoneBonus = candZone && prevZone && candZone === prevZone ? 12 : 0;
+    const prevZone = (prevSlot ? prevSlot.clinic.zone || prevSlot.hcp.zone : '').trim().toLowerCase();
+    const anchorZone = (anchorSlot ? anchorSlot.clinic.zone || anchorSlot.hcp.zone : '').trim().toLowerCase();
+    const candZone = (cand.clinic.zone || cand.hcp.zone || '').trim().toLowerCase();
+
+    const sameBuildingBonus = isSameBuilding ? 150 : 0;
+    const ultraCloseBonus = !isSameBuilding && distKm <= 0.35 ? 95 : !isSameBuilding && distKm <= 1.0 ? 55 : 0;
+    const samePrevZoneBonus = candZone && prevZone && candZone === prevZone ? 40 : 0;
+    const sameAnchorZoneBonus = candZone && anchorZone && candZone === anchorZone ? 25 : 0;
+
+    const anchorDistKm =
+      anchorSlot && isValidCoordinatePair(anchorSlot.clinic.latitude, anchorSlot.clinic.longitude)
+        ? estimateTravel(
+            anchorSlot.clinic.latitude,
+            anchorSlot.clinic.longitude,
+            cand.clinic.latitude,
+            cand.clinic.longitude,
+            settings.trafficSafetyBufferPercent
+          ).distanceKm
+        : distKm;
+
+    // Compact urgency bonus (0..24 range) so priority breaks ties among nearby doctors without jumping 10km away
     const hcpTarget = Math.max(1, cand.hcp.quarterlyTarget || 8);
-    const urgencyRatio = cand.remainingVisits / hcpTarget;
+    const urgencyRatio = Math.min(1, cand.remainingVisits / hcpTarget);
     const urgency =
-      urgencyRatio * 40 +
-      cand.remainingVisits * 6 +
-      Math.min(30, cand.daysSinceLastVisit * 0.4) +
-      (cand.hcp.priorityScore || 50) * 0.2;
+      urgencyRatio * 12 +
+      Math.min(8, cand.remainingVisits * 0.8) +
+      Math.min(4, cand.daysSinceLastVisit * 0.08) +
+      (cand.hcp.priorityScore || 50) * 0.04;
 
     let stepScore: number;
     if (strategy === 'MIN_DRIVE') {
       stepScore =
-        sameBuildingBonus + sameZoneBonus - travelMin * 3.2 - waitMin * 1.1 + urgency * 0.35;
+        sameBuildingBonus +
+        ultraCloseBonus +
+        samePrevZoneBonus +
+        sameAnchorZoneBonus -
+        distKm * 52 -
+        anchorDistKm * 16 -
+        travelMin * 2.5 -
+        waitMin * 0.7 +
+        urgency * 0.45;
     } else if (strategy === 'COVERAGE_RECOVERY') {
       stepScore =
-        urgency * 2.2 + sameBuildingBonus * 0.6 - travelMin * 1.1 - waitMin * 0.85;
-    } else {
-      stepScore =
-        urgency * 1.15 +
         sameBuildingBonus +
-        sameZoneBonus -
+        ultraCloseBonus +
+        samePrevZoneBonus +
+        sameAnchorZoneBonus -
+        distKm * 34 -
+        anchorDistKm * 10 -
+        travelMin * 1.6 -
+        waitMin * 0.65 +
+        urgency * 1.1;
+    } else {
+      // BALANCED (Plan A): strongly minimize inter-HCP distance while honoring priority within the cluster
+      stepScore =
+        sameBuildingBonus +
+        ultraCloseBonus +
+        samePrevZoneBonus +
+        sameAnchorZoneBonus -
+        distKm * 44 -
+        anchorDistKm * 14 -
         travelMin * 2.0 -
-        waitMin * 0.95;
+        waitMin * 0.7 +
+        urgency * 0.7;
     }
 
     if (customSeed > 0) {
       const stepJitter =
         ((hashStopSeed(cand.hcp.targetId, cand.clinic.clinicKey, customSeed + 19) % 100) /
           100) *
-        8.5;
+        4.5;
       stepScore += stepJitter;
     }
 
@@ -786,13 +995,17 @@ function buildVariantStopsWithDiversity(params: {
 
   const evaluatedRoutes = new Map<string, EvaluatedCandidateRoute>();
 
-  const recordCandidateRoute = (
-    stops: PlanStop[],
-    totalDrive: number,
-    totalWait: number,
+  const recordCandidateSlotSequence = (
+    rawSequence: CandidateClinicSlot[],
     prioritySum: number
   ) => {
-    if (stops.length === 0) return;
+    if (rawSequence.length === 0) return;
+
+    // Run 2-Opt & relocation spatial shortest-path pass to minimize inter-HCP distances
+    const optimized = optimizeSlotSequenceForMinDistance(rawSequence, settings);
+    if (!optimized || optimized.stops.length === 0) return;
+
+    const { stops, totalDistanceKm, interHcpDistanceKm, totalDrive, totalWait } = optimized;
     const sig = getRouteSignature(stops);
     const setSig = getRouteHcpSetSignature(stops);
     const overlapWithPrevCount = stops.filter((s) => {
@@ -800,12 +1013,17 @@ function buildVariantStopsWithDiversity(params: {
       return !s.isLocked && (prevStopKeySet.has(k) || prevHcpIdSet.has(s.hcpTargetId));
     }).length;
 
+    // Aggregate score heavily rewards full visit count and smallest inter-HCP & total distance
+    const distWeight =
+      strategy === 'MIN_DRIVE' ? 55 : strategy === 'BALANCED' ? 45 : 32;
     const aggregateScore =
-      stops.length * 100 +
-      prioritySum * 15 -
-      totalDrive * (strategy === 'MIN_DRIVE' ? 1.5 : 0.6) -
-      totalWait * 0.35 -
-      (hasAlternateEligibleHcps ? overlapWithPrevCount * 8 : 0);
+      stops.length * 600 -
+      interHcpDistanceKm * distWeight -
+      totalDistanceKm * 18 -
+      totalDrive * 2.2 -
+      totalWait * 0.3 +
+      prioritySum * 6 -
+      (hasAlternateEligibleHcps ? overlapWithPrevCount * 22 : 0);
 
     const existing = evaluatedRoutes.get(sig);
     if (!existing || aggregateScore > existing.aggregateScore) {
@@ -813,20 +1031,23 @@ function buildVariantStopsWithDiversity(params: {
         stops,
         signature: sig,
         hcpSetSignature: setSig,
+        totalDistanceKm,
+        interHcpDistanceKm,
+        totalDrive,
+        totalWait,
         aggregateScore,
         overlapWithPrevCount,
       });
     }
   };
 
-  // CASE A: Locked/Completed stops exist on this day -> keep them fixed and build unlocked stops around them
+  // CASE A: Locked/Completed stops exist on this day -> keep them fixed and build nearest unlocked stops around them
   if (fixedLockedSlots.length > 0) {
     const orderedFixed = [...fixedLockedSlots].sort(
       (a, b) =>
         (a.preferredStartMinute ?? a.windowStart) - (b.preferredStartMinute ?? b.windowStart)
     );
 
-    // Run multiple seeded passes to generate diverse valid completions around the locked stops
     const passSeeds = [
       variantSeed,
       variantSeed + 101,
@@ -840,6 +1061,7 @@ function buildVariantStopsWithDiversity(params: {
       let currentSeq = [...orderedFixed];
       const usedHcps = new Set<string>(orderedFixed.map((s) => s.hcp.targetId));
       let prioritySum = orderedFixed.reduce((acc, s) => acc + baseScoreSeed(s), 0);
+      const anchorSlot = orderedFixed[0] || null;
 
       while (currentSeq.length < targetVisits) {
         let bestInsertion: {
@@ -851,7 +1073,6 @@ function buildVariantStopsWithDiversity(params: {
         for (const cand of unlockedCandidates) {
           if (usedHcps.has(cand.hcp.targetId)) continue;
 
-          // Try inserting cand at every position 0..currentSeq.length
           for (let pos = 0; pos <= currentSeq.length; pos++) {
             const trialSeq = [
               ...currentSeq.slice(0, pos),
@@ -861,17 +1082,16 @@ function buildVariantStopsWithDiversity(params: {
             const scheduled = tryScheduleSlotSequenceStrict(trialSeq, settings);
             if (!scheduled) continue;
 
-            const prevSlot = pos > 0 ? trialSeq[pos - 1] : null;
+            const prevSlot = pos > 0 ? trialSeq[pos - 1] : trialSeq[1] || null;
             const placedStop = scheduled.stops[pos];
             const prevStop = pos > 0 ? scheduled.stops[pos - 1] : null;
-            const waitMin =
-              prevStop
-                ? Math.max(
-                    0,
-                    placedStop.visitStartMinute -
-                      (prevStop.visitEndMinute + placedStop.travelMinutesFromPrev)
-                  )
-                : 0;
+            const waitMin = prevStop
+              ? Math.max(
+                  0,
+                  placedStop.visitStartMinute -
+                    (prevStop.visitEndMinute + placedStop.travelMinutesFromPrev)
+                )
+              : 0;
             const isSameBuilding =
               pos > 0 &&
               placedStop.travelMinutesFromPrev === 0 &&
@@ -879,15 +1099,17 @@ function buildVariantStopsWithDiversity(params: {
 
             const stepScore =
               computeStepScore(
+                anchorSlot,
                 prevSlot,
                 cand,
+                placedStop.distanceKmFromPrev,
                 placedStop.travelMinutesFromPrev,
                 isSameBuilding,
                 waitMin,
                 pSeed
               ) -
-              scheduled.totalDrive * 0.25 -
-              scheduled.totalWait * 0.1;
+              scheduled.interHcpDistanceKm * 18 -
+              scheduled.totalDrive * 0.4;
 
             if (!bestInsertion || stepScore > bestInsertion.score) {
               bestInsertion = {
@@ -905,93 +1127,39 @@ function buildVariantStopsWithDiversity(params: {
         prioritySum += scoreSeed(bestInsertion.cand, pSeed);
       }
 
-      const finalScheduled = tryScheduleSlotSequenceStrict(currentSeq, settings);
-      if (finalScheduled) {
-        recordCandidateRoute(
-          finalScheduled.stops,
-          finalScheduled.totalDrive,
-          finalScheduled.totalWait,
-          prioritySum
-        );
-      }
+      recordCandidateSlotSequence(currentSeq, prioritySum);
     }
   } else {
-    // CASE B: No locked stops -> explore top anchor seeds + rotated seeds
+    // CASE B: No locked stops -> explore top cluster-dense anchor seeds + rotated seeds
     const sortedSeeds = [...unlockedCandidates].sort(
       (a, b) => scoreSeed(b, variantSeed) - scoreSeed(a, variantSeed)
     );
-    const maxSeedsToTry = Math.min(20, sortedSeeds.length);
+    const maxSeedsToTry = Math.min(28, sortedSeeds.length);
     const seedPool = sortedSeeds.slice(0, maxSeedsToTry);
 
     for (let sIdx = 0; sIdx < seedPool.length; sIdx++) {
       const seed = seedPool[sIdx];
       const runSeed = variantSeed + sIdx * 37;
-      const usedHcps = new Set<string>([seed.hcp.targetId]);
-      const homeTravel = hasHome
-        ? estimateTravel(
-            settings.homeLatitude,
-            settings.homeLongitude,
-            seed.clinic.latitude,
-            seed.clinic.longitude,
-            settings.trafficSafetyBufferPercent
-          )
-        : { distanceKm: 0, travelMinutes: 0, isSameBuilding: false };
+      const initialCheck = tryScheduleSlotSequenceStrict([seed], settings);
+      if (!initialCheck) continue;
 
-      const dutyStart = Math.max(0, seed.windowStart - homeTravel.travelMinutes);
-      let currentClock = seed.windowStart + seed.visitDuration;
+      const sequence: CandidateClinicSlot[] = [seed];
+      const usedHcps = new Set<string>([seed.hcp.targetId]);
+      let currentClock = initialCheck.stops[0].visitEndMinute;
+      const dutyStart = Math.max(
+        0,
+        initialCheck.stops[0].visitStartMinute - initialCheck.stops[0].travelMinutesFromPrev
+      );
       let curLat = seed.clinic.latitude;
       let curLng = seed.clinic.longitude;
-      let totalDrive = homeTravel.travelMinutes;
-      let totalWait = 0;
-
-      const seedReturn =
-        settings.returnHomeRequired && hasHome
-          ? estimateTravel(
-              curLat,
-              curLng,
-              settings.homeLatitude,
-              settings.homeLongitude,
-              settings.trafficSafetyBufferPercent
-            ).travelMinutes
-          : 0;
-      if (currentClock + seedReturn - dutyStart > maxDuty) {
-        continue;
-      }
-
-      const route: PlanStop[] = [
-        {
-          stopOrder: 1,
-          hcpTargetId: seed.hcp.targetId,
-          hcpName: seed.hcp.name,
-          specialty: seed.hcp.specialty,
-          clinicKey: seed.clinic.clinicKey,
-          clinicLabel: seed.clinic.label,
-          zone: seed.clinic.zone || seed.hcp.zone,
-          latitude: seed.clinic.latitude,
-          longitude: seed.clinic.longitude,
-          arrivalMinute: seed.windowStart,
-          visitStartMinute: seed.windowStart,
-          visitEndMinute: currentClock,
-          visitDurationMinutes: seed.visitDuration,
-          travelMinutesFromPrev: homeTravel.travelMinutes,
-          distanceKmFromPrev: homeTravel.distanceKm,
-          executionStatus: 'PLANNED',
-          isLocked: false,
-        },
-      ];
-
       let prevSlot: CandidateClinicSlot = seed;
       let routePrioritySum = scoreSeed(seed, runSeed);
+      const maxDuty = Math.max(60, settings.maxDutySpanMinutes || 480);
 
-      while (route.length < targetVisits) {
+      while (sequence.length < targetVisits) {
         let bestNext: {
           slot: CandidateClinicSlot;
-          arrival: number;
-          visitStart: number;
           visitEnd: number;
-          travelMin: number;
-          distKm: number;
-          waitMin: number;
           stepScore: number;
         } | null = null;
 
@@ -1028,23 +1196,20 @@ function buildVariantStopsWithDiversity(params: {
 
           const waitMin = Math.max(0, visitStart - arrival);
           const stepScore = computeStepScore(
+            seed,
             prevSlot,
             cand,
+            travel.distanceKm,
             travel.travelMinutes,
             travel.isSameBuilding,
             waitMin,
-            runSeed + route.length * 17
+            runSeed + sequence.length * 17
           );
 
           if (!bestNext || stepScore > bestNext.stepScore) {
             bestNext = {
               slot: cand,
-              arrival,
-              visitStart,
               visitEnd,
-              travelMin: travel.travelMinutes,
-              distKm: travel.distanceKm,
-              waitMin,
               stepScore,
             };
           }
@@ -1052,37 +1217,16 @@ function buildVariantStopsWithDiversity(params: {
 
         if (!bestNext) break;
 
+        sequence.push(bestNext.slot);
         usedHcps.add(bestNext.slot.hcp.targetId);
         currentClock = bestNext.visitEnd;
         curLat = bestNext.slot.clinic.latitude;
         curLng = bestNext.slot.clinic.longitude;
-        totalDrive += bestNext.travelMin;
-        totalWait += bestNext.waitMin;
         prevSlot = bestNext.slot;
         routePrioritySum += scoreSeed(bestNext.slot, runSeed);
-
-        route.push({
-          stopOrder: route.length + 1,
-          hcpTargetId: bestNext.slot.hcp.targetId,
-          hcpName: bestNext.slot.hcp.name,
-          specialty: bestNext.slot.hcp.specialty,
-          clinicKey: bestNext.slot.clinic.clinicKey,
-          clinicLabel: bestNext.slot.clinic.label,
-          zone: bestNext.slot.clinic.zone || bestNext.slot.hcp.zone,
-          latitude: bestNext.slot.clinic.latitude,
-          longitude: bestNext.slot.clinic.longitude,
-          arrivalMinute: bestNext.arrival,
-          visitStartMinute: bestNext.visitStart,
-          visitEndMinute: bestNext.visitEnd,
-          visitDurationMinutes: bestNext.slot.visitDuration,
-          travelMinutesFromPrev: bestNext.travelMin,
-          distanceKmFromPrev: bestNext.distKm,
-          executionStatus: 'PLANNED',
-          isLocked: false,
-        });
       }
 
-      recordCandidateRoute(route, totalDrive, totalWait, routePrioritySum);
+      recordCandidateSlotSequence(sequence, routePrioritySum);
     }
   }
 
@@ -1098,8 +1242,7 @@ function buildVariantStopsWithDiversity(params: {
   // Sort top-length routes:
   // 1) Not in seenSignatures (distinct across Plan A, Plan B, Plan C)
   // 2) Different HCP set or sequence from previousPlanStopKeys
-  // 3) Lower overlap with previousPlanStopKeys when alternate HCPs exist
-  // 4) Higher aggregateScore
+  // 3) Smallest inter-HCP distance & highest aggregateScore
   topLengthRoutes.sort((a, b) => {
     const aUnseen = !seenSignatures.has(a.signature) ? 1 : 0;
     const bUnseen = !seenSignatures.has(b.signature) ? 1 : 0;
@@ -1127,7 +1270,7 @@ function buildVariantStopsWithDiversity(params: {
 
   // GRACEFUL EXHAUSTION FALLBACK:
   // If chosen route still matches previousSignature or seenSignatures (e.g. only 1 feasible HCP set exists),
-  // try alternate feasible visit orderings or start-time offsets of the chosen stops!
+  // try alternate feasible visit orderings sorted by smallest inter-HCP distance!
   if (
     (previousSignature && chosen.signature === previousSignature) ||
     seenSignatures.has(chosen.signature)
@@ -1145,7 +1288,6 @@ function buildVariantStopsWithDiversity(params: {
     let foundAlternateOrder = false;
 
     if (baseSlots.length >= 2) {
-      // Generate rotated / swapped permutations of unlocked slots while preserving any locked stops
       const candidatePermutations: CandidateClinicSlot[][] = [];
       for (let rot = 1; rot < baseSlots.length; rot++) {
         candidatePermutations.push([
@@ -1162,32 +1304,51 @@ function buildVariantStopsWithDiversity(params: {
         candidatePermutations.push(swapped);
       }
 
-      // Deterministic rotation based on diversitySeed
-      const startOffset = effectiveSeed % Math.max(1, candidatePermutations.length);
-      for (let k = 0; k < candidatePermutations.length; k++) {
-        const perm =
-          candidatePermutations[(startOffset + k) % candidatePermutations.length];
+      const validAlts: Array<{
+        stops: PlanStop[];
+        sig: string;
+        setSig: string;
+        interHcpDistanceKm: number;
+        totalDistanceKm: number;
+        totalDrive: number;
+        totalWait: number;
+      }> = [];
+
+      for (const perm of candidatePermutations) {
         const scheduled = tryScheduleSlotSequenceStrict(perm, settings);
         if (!scheduled) continue;
         const permSig = getRouteSignature(scheduled.stops);
-        if (
-          permSig !== previousSignature &&
-          !seenSignatures.has(permSig)
-        ) {
-          chosen = {
+        if (permSig !== previousSignature && !seenSignatures.has(permSig)) {
+          validAlts.push({
             stops: scheduled.stops,
-            signature: permSig,
-            hcpSetSignature: getRouteHcpSetSignature(scheduled.stops),
-            aggregateScore: chosen.aggregateScore - 1,
-            overlapWithPrevCount: chosen.overlapWithPrevCount,
-          };
-          foundAlternateOrder = true;
-          break;
+            sig: permSig,
+            setSig: getRouteHcpSetSignature(scheduled.stops),
+            interHcpDistanceKm: scheduled.interHcpDistanceKm,
+            totalDistanceKm: scheduled.totalDistanceKm,
+            totalDrive: scheduled.totalDrive,
+            totalWait: scheduled.totalWait,
+          });
         }
+      }
+
+      if (validAlts.length > 0) {
+        validAlts.sort((a, b) => a.interHcpDistanceKm - b.interHcpDistanceKm);
+        const pick = validAlts[effectiveSeed % validAlts.length];
+        chosen = {
+          stops: pick.stops,
+          signature: pick.sig,
+          hcpSetSignature: pick.setSig,
+          totalDistanceKm: pick.totalDistanceKm,
+          interHcpDistanceKm: pick.interHcpDistanceKm,
+          totalDrive: pick.totalDrive,
+          totalWait: pick.totalWait,
+          aggregateScore: chosen.aggregateScore - 1,
+          overlapWithPrevCount: chosen.overlapWithPrevCount,
+        };
+        foundAlternateOrder = true;
       }
     }
 
-    // If only 1 stop or all order permutations have been shown/invalid, try shifted valid start time
     if (!foundAlternateOrder && baseSlots.length > 0 && variantIndex === 0 && previousSignature) {
       const timeOffsets = [15, 30, 45, 60];
       const offsetChoice = timeOffsets[effectiveSeed % timeOffsets.length];
@@ -1215,7 +1376,7 @@ function buildVariantStopsWithDiversity(params: {
 
 /**
  * Generates Plans A, B, and C for a single day while honoring every Territory Rx rule,
- * with controlled diversity & rotation on every click of "AI Route Plan".
+ * minimizing inter-HCP travel distances and providing controlled diversity on every click.
  */
 export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
   const {
@@ -1259,11 +1420,7 @@ export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
     clinicsByKey.set(c.clinicKey, c);
   }
 
-  // Weekly 1-visit-per-HCP enforcement across ALL clinics of an HCP:
-  // 1) extraBlockedHcpIds
-  // 2) weeklyLocks on other days of the same calendar week
-  // 3) visits (PLANNED or COMPLETED) on other days of the same calendar week
-  // 4) existingWeekPlans (selected plan on another day of the same calendar week)
+  // Weekly 1-visit-per-HCP enforcement across ALL clinics of an HCP
   const lockedHcpIds = new Set<string>(
     extraBlockedHcpIds ? Array.from(extraBlockedHcpIds) : []
   );
@@ -1363,7 +1520,6 @@ export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
           15
       );
 
-      // Find window matching stop's visitStartMinute or earliest valid window on this day
       let matchedWin: { win: ClinicWindow; start: number; end: number } | null = null;
       for (const win of dayWindows) {
         const rawBounds = getEffectiveWindowBounds(win);
@@ -1501,9 +1657,9 @@ export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
     strategy: VariantStrategy;
     isSelected: boolean;
   }> = [
-    { code: 'A', label: 'Balanced Priority', strategy: 'BALANCED', isSelected: true },
-    { code: 'B', label: 'Minimum Drive Cluster', strategy: 'MIN_DRIVE', isSelected: false },
-    { code: 'C', label: 'Coverage Recovery', strategy: 'COVERAGE_RECOVERY', isSelected: false },
+    { code: 'A', label: 'Shortest Distance Cluster', strategy: 'MIN_DRIVE', isSelected: true },
+    { code: 'B', label: 'Balanced Proximity', strategy: 'BALANCED', isSelected: false },
+    { code: 'C', label: 'Coverage + Proximity', strategy: 'COVERAGE_RECOVERY', isSelected: false },
   ];
 
   const seenSignatures = new Set<string>();
