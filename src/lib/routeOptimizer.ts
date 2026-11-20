@@ -48,7 +48,7 @@ export interface OptimizeDayInput {
   visits: Visit[];
   weeklyLocks: WeeklyLock[];
   settings: WorkSettings;
-  zoneFilter?: string;
+  zoneFilter?: string | string[];
   targetOverride?: number;
   shiftStartMinute?: number;
   shiftEndMinute?: number;
@@ -1569,6 +1569,13 @@ export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
   const candidates: CandidateClinicSlot[] = [];
   const eligibleUniqueHcps = new Set<string>(fixedLockedHcpIds);
 
+  // Normalize single or multi-select Brick/Zone filter
+  const selectedZoneSet = new Set<string>(
+    (Array.isArray(zoneFilter) ? zoneFilter : zoneFilter ? [zoneFilter] : [])
+      .map((z) => String(z || '').trim().toLowerCase())
+      .filter((z) => z.length > 0 && z !== 'all')
+  );
+
   if (!isWeekend) {
     for (const clinic of resolvedClinics) {
       if (!clinic.isActive) continue;
@@ -1587,11 +1594,14 @@ export function optimizeDailyPlans(input: OptimizeDayInput): DailyPlan[] {
       if (lockedHcpIds.has(hcp.targetId)) continue;
       if (fixedLockedHcpIds.has(hcp.targetId)) continue;
 
-      const effectiveZone = (clinic.zone || hcp.zone || '').trim();
+      const clinicZone = (clinic.zone || '').trim().toLowerCase();
+      const hcpZone = (hcp.zone || '').trim().toLowerCase();
+      const effectiveZone = clinicZone || hcpZone;
       if (
-        zoneFilter &&
-        zoneFilter !== 'ALL' &&
-        effectiveZone.toLowerCase() !== zoneFilter.toLowerCase()
+        selectedZoneSet.size > 0 &&
+        !selectedZoneSet.has(effectiveZone) &&
+        !selectedZoneSet.has(clinicZone) &&
+        !selectedZoneSet.has(hcpZone)
       ) {
         continue;
       }

@@ -39,23 +39,23 @@ export const OpeningPosterScreen: React.FC<OpeningPosterScreenProps> = ({ onStar
           className="w-full h-full object-cover object-center block"
         />
 
-        {/* Smooth top-sky band masking the baked-in status bar and old pin/swoosh cleanly */}
+        {/* Solid top-sky band completely covering the baked-in status bar, pin/swoosh, and ghost text */}
         <div
           aria-hidden="true"
-          className="absolute top-0 left-0 right-0 h-[14.2%] pointer-events-none"
+          className="absolute top-0 left-0 right-0 h-[14.4%] pointer-events-none"
           style={{
             background:
-              'linear-gradient(180deg, #EDF3FA 0%, #E9F1FA 68%, rgba(233,241,250,0.92) 84%, rgba(233,241,250,0) 100%)',
+              'linear-gradient(180deg, #E2F3FB 0%, #E3F3FA 60%, #E4F3FA 92%, rgba(228,243,250,0) 100%)',
           }}
         />
 
-        {/* Crisp Opening Poster Header Brand Row */}
+        {/* Crisp Opening Poster Header Brand Row (no shadow) */}
         <div
           aria-hidden="true"
-          className="absolute top-[5.2%] left-0 right-0 flex items-center justify-center pointer-events-none"
+          className="absolute top-[5.8%] left-0 right-0 flex items-center justify-center pointer-events-none"
           style={{ gap: '3.2cqw' }}
         >
-          <TerritoryRxIcon size="12.2cqw" className="shadow-md ring-1 ring-[#0A3D62]/15" />
+          <TerritoryRxIcon size="12.2cqw" />
           <span
             className="leading-none font-semibold tracking-tight text-[#0B2559]"
             style={{ fontSize: '8.2cqw' }}

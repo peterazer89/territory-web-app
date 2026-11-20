@@ -72,6 +72,7 @@ import {
   WeeklyLockConflictError,
 } from '../lib/firestoreService';
 import { loadLocalPrefs, saveLocalPrefs } from '../lib/localPrefs';
+import { RouteMapIllustration } from './RouteMapIllustration';
 
 interface PlannerTabProps {
   onToast: (text: string, type?: 'success' | 'error') => void;
@@ -93,7 +94,10 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
 
   const [viewMode, setViewMode] = useState<'daily' | 'weekly'>('daily');
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
-  const [zoneFilter, setZoneFilter] = useState<string>('ALL');
+  const [selectedZones, setSelectedZones] = useState<string[]>([]);
+  const [brickDropdownOpen, setBrickDropdownOpen] = useState<boolean>(false);
+  const [brickSearchQuery, setBrickSearchQuery] = useState<string>('');
+  const [showFullRouteMap, setShowFullRouteMap] = useState<boolean>(true);
   const [targetOverride, setTargetOverride] = useState<number>(settings.dailyHcpTarget || 8);
   const [shiftStartMin, setShiftStartMin] = useState<number>(13 * 60);
   const [shiftEndMin, setShiftEndMin] = useState<number>(21 * 60);
@@ -182,6 +186,44 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
     });
     return Array.from(s).sort();
   }, [hcps, clinics]);
+
+  const hcpCountByBrick = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of bricks) counts.set(b, 0);
+    const activeHcps = hcps.filter((h) => h.isActive && !h.isDeleted);
+    for (const h of activeHcps) {
+      const matchedBricks = new Set<string>();
+      if (h.zone?.trim()) matchedBricks.add(h.zone.trim());
+      for (const c of clinics) {
+        if (c.isActive && c.hcpTargetId === h.targetId && c.zone?.trim()) {
+          matchedBricks.add(c.zone.trim());
+        }
+      }
+      for (const mb of matchedBricks) {
+        counts.set(mb, (counts.get(mb) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [hcps, clinics, bricks]);
+
+  const filteredBrickOptions = useMemo(() => {
+    const q = brickSearchQuery.trim().toLowerCase();
+    if (!q) return bricks;
+    return bricks.filter((b) => b.toLowerCase().includes(q));
+  }, [bricks, brickSearchQuery]);
+
+  const zoneFilterSummaryLabel = useMemo(() => {
+    if (selectedZones.length === 0) return 'All Bricks';
+    if (selectedZones.length === 1) return selectedZones[0];
+    if (selectedZones.length === 2) return `${selectedZones[0]}, ${selectedZones[1]}`;
+    return `${selectedZones.length} Bricks (${selectedZones[0]}, ${selectedZones[1]} +${selectedZones.length - 2})`;
+  }, [selectedZones]);
+
+  const toggleBrickSelection = (brick: string) => {
+    setSelectedZones((prev) =>
+      prev.includes(brick) ? prev.filter((item) => item !== brick) : [...prev, brick]
+    );
+  };
 
   const clinicsByKey = useMemo(() => {
     const map = new Map<string, Clinic>();
@@ -278,6 +320,9 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
   const selectedDayStats = useMemo(() => {
     const isoDay = getIsoDayOfWeek(selectedDate);
     const activeHcps = hcps.filter((h) => h.isActive && !h.isDeleted);
+    const selectedZoneLowerSet = new Set(
+      selectedZones.map((z) => z.trim().toLowerCase()).filter(Boolean)
+    );
     let weeklyExcluded = 0;
     let eligible = 0;
 
@@ -293,7 +338,17 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
       }
       const hClinics = clinicsByHcp.get(h.targetId) || [];
       const hasOpenWindow = hClinics.some((c) => {
-        if (zoneFilter !== 'ALL' && (c.zone || h.zone || '').trim() !== zoneFilter) return false;
+        const cZone = (c.zone || '').trim().toLowerCase();
+        const hZone = (h.zone || '').trim().toLowerCase();
+        const effZone = cZone || hZone;
+        if (
+          selectedZoneLowerSet.size > 0 &&
+          !selectedZoneLowerSet.has(effZone) &&
+          !selectedZoneLowerSet.has(cZone) &&
+          !selectedZoneLowerSet.has(hZone)
+        ) {
+          return false;
+        }
         return getEffectiveClinicWindows(c).windows.some((w) => w.dayOfWeek === isoDay);
       });
       if (hasOpenWindow) eligible++;
@@ -307,7 +362,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
     weekLocksForWeek,
     remainingByHcp.map,
     selectedDate,
-    zoneFilter,
+    selectedZones,
     settings.enforceWeeklyHcpVisitLimit,
   ]);
 
@@ -553,7 +608,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
         visits,
         weeklyLocks,
         settings,
-        zoneFilter,
+        zoneFilter: selectedZones.length > 0 ? selectedZones : 'ALL',
         targetOverride,
         shiftStartMinute: shiftStartMin,
         shiftEndMinute: shiftEndMin,
@@ -635,7 +690,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
         visits,
         weeklyLocks,
         settings,
-        zoneFilter,
+        zoneFilter: selectedZones.length > 0 ? selectedZones : 'ALL',
         targetOverride,
         shiftStartMinute: shiftStartMin,
         shiftEndMinute: shiftEndMin,
@@ -997,7 +1052,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
       </section>
 
       {/* 3. Planning Controls Card ("Work Timing & Bricks", rounded-[20px]) */}
-      <section className="rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-3.5 space-y-3.5">
+      <section className="rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-3.5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-10 h-10 rounded-full bg-[#DBEAFE] dark:bg-[#1E3A8A] text-[#2563EB] dark:text-[#60A5FA] inline-flex items-center justify-center shrink-0">
@@ -1009,7 +1064,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
               </h2>
               <p className="mt-0.5 text-xs text-[#475569] dark:text-[#CBD5E1] truncate tabular-nums">
                 {formatMinuteOfDay(shiftStartMin)} – {formatMinuteOfDay(shiftEndMin)} •{' '}
-                {targetOverride} Visits • {zoneFilter === 'ALL' ? 'All Bricks' : zoneFilter}
+                {targetOverride} Visits • {zoneFilterSummaryLabel}
               </p>
             </div>
           </div>
@@ -1026,6 +1081,192 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
               <ChevronDown className="w-3.5 h-3.5" />
             )}
           </button>
+        </div>
+
+        {/* Always-Visible Multi-Choice Brick / Zone Dropdown List */}
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-[#475569] dark:text-[#CBD5E1]">
+              Brick / Zone Filter (Multiple Choice)
+            </span>
+            {selectedZones.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedZones([])}
+                className="text-[11px] font-bold text-[#2563EB] dark:text-[#60A5FA] hover:underline"
+              >
+                Reset to All Bricks
+              </button>
+            )}
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setBrickDropdownOpen((v) => !v)}
+              className="w-full h-11 px-3.5 rounded-[14px] border border-[#CBD5E1] dark:border-[#475569] bg-[#F8FAFC] dark:bg-[#0F172A] flex items-center justify-between gap-2 text-left transition-colors hover:border-[#2563EB] dark:hover:border-[#60A5FA]"
+              aria-expanded={brickDropdownOpen}
+              aria-label="Brick / Zone Multi-Choice Filter"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="rounded-full bg-[#0F766E]/15 dark:bg-[#115E59] text-[#0F766E] dark:text-[#2DD4BF] px-2.5 py-0.5 text-[11px] font-extrabold shrink-0 tabular-nums">
+                  {selectedZones.length === 0
+                    ? `All (${bricks.length})`
+                    : `${selectedZones.length} Selected`}
+                </span>
+                <span
+                  className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate"
+                  dir="auto"
+                >
+                  {selectedZones.length === 0
+                    ? 'All Territory Bricks / Zones'
+                    : selectedZones.join(' • ')}
+                </span>
+              </div>
+              {brickDropdownOpen ? (
+                <ChevronUp className="w-4 h-4 text-[#475569] dark:text-[#CBD5E1] shrink-0" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-[#475569] dark:text-[#CBD5E1] shrink-0" />
+              )}
+            </button>
+
+            {brickDropdownOpen && (
+              <div className="mt-1.5 rounded-[16px] bg-white dark:bg-[#0F172A] border border-[#CBD5E1] dark:border-[#475569] shadow-xl overflow-hidden z-30">
+                {/* Search & Bulk Actions Header inside Dropdown */}
+                <div className="p-2.5 border-b border-[#E2E8F0] dark:border-[#334155] space-y-2 bg-[#F8FAFC] dark:bg-[#1E293B]/60">
+                  {bricks.length > 4 && (
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-[#475569] dark:text-[#CBD5E1] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        dir="auto"
+                        value={brickSearchQuery}
+                        onChange={(e) => setBrickSearchQuery(e.target.value)}
+                        placeholder="Search bricks / zones..."
+                        className="w-full h-8 pl-8 pr-3 rounded-xl border border-[#CBD5E1] dark:border-[#475569] bg-white dark:bg-[#0F172A] text-xs text-[#0F172A] dark:text-[#F8FAFC]"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedZones([...bricks])}
+                        className="text-[11px] font-bold text-[#2563EB] dark:text-[#60A5FA] hover:underline"
+                      >
+                        Select All ({bricks.length})
+                      </button>
+                      <span className="text-[#CBD5E1] dark:text-[#475569]">•</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedZones([])}
+                        className="text-[11px] font-bold text-[#0F766E] dark:text-[#2DD4BF] hover:underline"
+                      >
+                        All Bricks (No Filter)
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBrickDropdownOpen(false)}
+                      className="h-6 px-2.5 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+
+                {/* Multi-Choice Checkbox List */}
+                <div className="max-h-60 overflow-y-auto divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                  {/* "All Bricks" Option Row */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedZones([])}
+                    className={`w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left text-xs font-semibold transition-colors ${
+                      selectedZones.length === 0
+                        ? 'bg-[#0F766E]/12 dark:bg-[#115E59]/40 text-[#0F766E] dark:text-[#2DD4BF]'
+                        : 'text-[#0F172A] dark:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`w-4 h-4 rounded-[5px] border inline-flex items-center justify-center shrink-0 ${
+                          selectedZones.length === 0
+                            ? 'bg-[#0F766E] border-[#0F766E] text-white'
+                            : 'border-[#94A3B8] dark:border-[#64748B]'
+                        }`}
+                      >
+                        {selectedZones.length === 0 && <Check className="w-3 h-3" />}
+                      </span>
+                      <span>All Bricks / Zones</span>
+                    </div>
+                    <span className="text-[11px] font-mono text-[#475569] dark:text-[#CBD5E1] tabular-nums">
+                      {activeHcpsAll.length} HCPs
+                    </span>
+                  </button>
+
+                  {filteredBrickOptions.length === 0 ? (
+                    <p className="p-4 text-center text-xs text-[#475569] dark:text-[#CBD5E1]">
+                      No bricks match &ldquo;{brickSearchQuery}&rdquo;
+                    </p>
+                  ) : (
+                    filteredBrickOptions.map((b) => {
+                      const isChecked = selectedZones.includes(b);
+                      const count = hcpCountByBrick.get(b) || 0;
+                      return (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => toggleBrickSelection(b)}
+                          className={`w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left text-xs font-semibold transition-colors ${
+                            isChecked
+                              ? 'bg-[#DBEAFE]/60 dark:bg-[#1E3A8A]/45 text-[#1D4ED8] dark:text-[#93C5FD]'
+                              : 'text-[#0F172A] dark:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span
+                              className={`w-4 h-4 rounded-[5px] border inline-flex items-center justify-center shrink-0 ${
+                                isChecked
+                                  ? 'bg-[#2563EB] border-[#2563EB] text-white'
+                                  : 'border-[#94A3B8] dark:border-[#64748B]'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3" />}
+                            </span>
+                            <span className="truncate" dir="auto">
+                              {b}
+                            </span>
+                          </div>
+                          <span className="rounded-full bg-[#F1F5F9] dark:bg-[#1E293B] text-[#475569] dark:text-[#CBD5E1] px-2 py-0.5 text-[10px] font-bold tabular-nums shrink-0">
+                            {count} HCPs
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Removable Selected Brick Chips when 1+ Bricks are chosen */}
+          {selectedZones.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {selectedZones.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => toggleBrickSelection(b)}
+                  className="h-7 px-2.5 rounded-full bg-[#0F766E] dark:bg-[#115E59] text-white text-[11px] font-bold inline-flex items-center gap-1.5 shadow-2xs"
+                  title={`Remove ${b}`}
+                >
+                  <span dir="auto">{b}</span>
+                  <X className="w-3 h-3 opacity-85" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {controlsExpanded && (
@@ -1115,41 +1356,6 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                 >
                   Set
                 </button>
-              </div>
-            </div>
-
-            {/* Brick / Zone Filter Chips */}
-            <div className="space-y-1.5">
-              <span className="text-xs font-semibold text-[#475569] dark:text-[#CBD5E1]">
-                Brick / Zone Filter
-              </span>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                <button
-                  type="button"
-                  onClick={() => setZoneFilter('ALL')}
-                  className={`h-8 px-3 rounded-full text-xs font-semibold border whitespace-nowrap ${
-                    zoneFilter === 'ALL'
-                      ? 'bg-[#0F766E] dark:bg-[#115E59] text-white border-transparent'
-                      : 'bg-[#F8FAFC] dark:bg-[#0F172A] text-[#475569] dark:text-[#CBD5E1] border-[#E2E8F0] dark:border-[#334155]'
-                  }`}
-                >
-                  All
-                </button>
-                {bricks.map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setZoneFilter(b)}
-                    className={`h-8 px-3 rounded-full text-xs font-semibold border whitespace-nowrap ${
-                      zoneFilter === b
-                        ? 'bg-[#0F766E] dark:bg-[#115E59] text-white border-transparent'
-                        : 'bg-[#F8FAFC] dark:bg-[#0F172A] text-[#475569] dark:text-[#CBD5E1] border-[#E2E8F0] dark:border-[#334155]'
-                    }`}
-                    dir="auto"
-                  >
-                    {b}
-                  </button>
-                ))}
               </div>
             </div>
 
@@ -1525,25 +1731,54 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onToast, onBusyChange })
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 text-xs text-[#475569] dark:text-[#CBD5E1] tabular-nums">
+                <div className="flex items-center justify-between gap-2 text-xs text-[#475569] dark:text-[#CBD5E1] tabular-nums flex-wrap">
                   <span>
                     Shift Window:{' '}
                     {activePlan.stops.length > 0
                       ? `${formatMinuteOfDay(activePlan.startMinuteOfDay)} – ${formatMinuteOfDay(activePlan.endMinuteOfDay)}`
                       : 'No stops scheduled'}
                   </span>
-                  {fullRouteUrl && (
-                    <a
-                      href={fullRouteUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#2563EB] dark:text-[#60A5FA] font-bold hover:underline inline-flex items-center gap-1"
-                    >
-                      <Navigation className="w-3 h-3" />
-                      <span>Full Route</span>
-                    </a>
+                  {activePlan.stops.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowFullRouteMap((v) => !v)}
+                        className={`h-7 px-2.5 rounded-full text-xs font-bold inline-flex items-center gap-1 border transition-colors ${
+                          showFullRouteMap
+                            ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                            : 'bg-[#DBEAFE]/60 dark:bg-[#1E3A8A]/60 text-[#2563EB] dark:text-[#60A5FA] border-[#2563EB]/30'
+                        }`}
+                      >
+                        <Navigation className="w-3 h-3" />
+                        <span>{showFullRouteMap ? 'Hide Route Map' : 'Full Route'}</span>
+                      </button>
+
+                      {fullRouteUrl && (
+                        <a
+                          href={fullRouteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-7 px-2.5 rounded-full bg-[#0F766E]/15 dark:bg-[#115E59]/70 text-[#0F766E] dark:text-[#2DD4BF] text-xs font-bold hover:opacity-90 inline-flex items-center gap-1"
+                        >
+                          <Navigation className="w-3 h-3" />
+                          <span>Google Maps</span>
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
+
+                {/* Interactive Full Route Map Illustration */}
+                {showFullRouteMap && activePlan.stops.length > 0 && (
+                  <RouteMapIllustration
+                    plan={activePlan}
+                    clinicsByKey={clinicsByKey}
+                    homeLatitude={settings.homeLatitude}
+                    homeLongitude={settings.homeLongitude}
+                    homeAddress={settings.homeAddress}
+                    returnHomeRequired={settings.returnHomeRequired}
+                  />
+                )}
 
                 {/* 4 Tinted Metric Tiles */}
                 <div className="grid grid-cols-4 gap-2 text-center tabular-nums">

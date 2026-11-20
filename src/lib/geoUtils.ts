@@ -4,6 +4,7 @@ import {
   extractCoordinates,
   isValidLatLng,
   normalizeDigitsAndUrlText,
+  resolveZoneCentroid,
 } from '../utils/gpsLocationParser';
 
 export interface ExtractedGeo {
@@ -76,14 +77,28 @@ export function buildMultiStopGoogleMapsUrl(
   homeLng?: number | null,
   returnHomeRequired = false
 ): string {
-  const coords = stops
-    .filter((s) => isValidCoordinatePair(s.latitude, s.longitude))
-    .map((s) => `${s.latitude!.toFixed(6)},${s.longitude!.toFixed(6)}`);
+  if (!stops || stops.length === 0) return '';
 
-  if (coords.length === 0) return '';
+  const coords = stops.map((s, idx) => {
+    if (isValidCoordinatePair(s.latitude, s.longitude)) {
+      return `${s.latitude!.toFixed(6)},${s.longitude!.toFixed(6)}`;
+    }
+    const fallback = resolveZoneCentroid(s.zone || '', `${s.hcpName || ''}_${idx}`);
+    return `${fallback.latitude.toFixed(6)},${fallback.longitude.toFixed(6)}`;
+  });
 
   const hasHome = isValidCoordinatePair(homeLat, homeLng);
   const homeCoord = hasHome ? `${homeLat!.toFixed(6)},${homeLng!.toFixed(6)}` : null;
+
+  // When there is only 1 stop and no home origin, omit origin so Google Maps routes from live GPS to the stop
+  if (coords.length === 1 && !homeCoord) {
+    const params = new URLSearchParams({
+      api: '1',
+      travelmode: 'driving',
+      destination: coords[0],
+    });
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
 
   const origin = homeCoord || coords[0];
   const destination = returnHomeRequired && homeCoord ? homeCoord : coords[coords.length - 1];
@@ -102,7 +117,7 @@ export function buildMultiStopGoogleMapsUrl(
   });
 
   if (waypointList.length > 0) {
-    params.set('waypoints', waypointList.slice(0, 9).join('|'));
+    params.set('waypoints', waypointList.slice(0, 20).join('|'));
   }
 
   return `https://www.google.com/maps/dir/?${params.toString()}`;
